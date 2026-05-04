@@ -13,7 +13,7 @@ from agent_core import action
 def list_drive_files(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "list_drive_files",
+        "google_drive", "list_drive_files",
         unwrap_envelope=True, fail_message="Failed to list files.",
         folder_id=input_data["folder_id"],
     )
@@ -32,7 +32,7 @@ def list_drive_files(input_data: dict) -> dict:
 def create_drive_folder(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "create_drive_folder",
+        "google_drive", "create_drive_folder",
         unwrap_envelope=True, fail_message="Failed to create folder.",
         name=input_data["name"],
         parent_folder_id=input_data.get("parent_folder_id"),
@@ -53,7 +53,7 @@ def create_drive_folder(input_data: dict) -> dict:
 def move_drive_file(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "move_drive_file",
+        "google_drive", "move_drive_file",
         unwrap_envelope=True, fail_message="Failed to move file.",
         file_id=input_data["file_id"],
         add_parents=input_data["destination_folder_id"],
@@ -75,7 +75,7 @@ def move_drive_file(input_data: dict) -> dict:
 def find_drive_folder_by_name(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "find_drive_folder_by_name",
+        "google_drive", "find_drive_folder_by_name",
         unwrap_envelope=True, fail_message="Failed to find folder.",
         name=input_data["name"],
         parent_folder_id=input_data.get("parent_folder_id"),
@@ -102,7 +102,7 @@ def resolve_drive_folder_path(input_data: dict) -> dict:
 
     for part in parts:
         result = run_client_sync(
-            "google_workspace", "find_drive_folder_by_name",
+            "google_drive", "find_drive_folder_by_name",
             unwrap_envelope=True, fail_message=f"Failed to look up '{part}'",
             name=part, parent_folder_id=current_folder_id,
         )

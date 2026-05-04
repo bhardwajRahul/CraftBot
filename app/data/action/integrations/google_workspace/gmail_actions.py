@@ -16,7 +16,7 @@ from agent_core import action
 def send_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "send_email",
+        "gmail", "send_email",
         unwrap_envelope=True, success_message="Email sent.", fail_message="Failed to send email.",
         to=input_data["to"],
         subject=input_data["subject"],
@@ -37,7 +37,7 @@ def send_gmail(input_data: dict) -> dict:
 def list_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "list_emails",
+        "gmail", "list_emails",
         unwrap_envelope=True, fail_message="Failed to list emails.",
         n=input_data.get("count", 5),
     )
@@ -56,7 +56,7 @@ def list_gmail(input_data: dict) -> dict:
 def get_gmail(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "get_email",
+        "gmail", "get_email",
         unwrap_envelope=True, fail_message="Failed to get email.",
         message_id=input_data["message_id"],
         full_body=input_data.get("full_body", False),
@@ -76,7 +76,7 @@ def get_gmail(input_data: dict) -> dict:
 def read_top_emails(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "read_top_emails",
+        "gmail", "read_top_emails",
         unwrap_envelope=True, fail_message="Failed to read emails.",
         n=input_data.get("count", 5),
         full_body=input_data.get("full_body", False),
@@ -99,7 +99,7 @@ def read_top_emails(input_data: dict) -> dict:
 def send_google_workspace_email(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "send_email",
+        "gmail", "send_email",
         unwrap_envelope=True, success_message="Email sent.", fail_message="Failed to send email.",
         to=input_data["to_email"],
         subject=input_data["subject"],
@@ -123,7 +123,7 @@ def send_google_workspace_email(input_data: dict) -> dict:
 def read_recent_google_workspace_emails(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "read_top_emails",
+        "gmail", "read_top_emails",
         unwrap_envelope=True, fail_message="Failed to read emails.",
         n=input_data.get("n", 5),
         full_body=input_data.get("full_body", False),

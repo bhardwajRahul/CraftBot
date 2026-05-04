@@ -14,7 +14,7 @@ from agent_core import action
 def create_google_meet(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "create_meet_event",
+        "google_calendar", "create_meet_event",
         unwrap_envelope=True, fail_message="Failed to create event.",
         calendar_id=input_data.get("calendar_id", "primary"),
         event_data=input_data.get("event_data"),
@@ -35,7 +35,7 @@ def create_google_meet(input_data: dict) -> dict:
 def check_calendar_availability(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import run_client_sync
     return run_client_sync(
-        "google_workspace", "check_availability",
+        "google_calendar", "check_availability",
         unwrap_envelope=True, fail_message="Failed to check availability.",
         calendar_id=input_data.get("calendar_id", "primary"),
         time_min=input_data.get("time_min"),
@@ -70,7 +70,7 @@ def check_availability_and_schedule(input_data: dict) -> dict:
         return {"status": "error", "message": str(e)}
 
     avail = run_client_sync(
-        "google_workspace", "check_availability",
+        "google_calendar", "check_availability",
         unwrap_envelope=True, fail_message="Google Calendar FreeBusy API error",
         calendar_id="primary",
         time_min=start_time.isoformat() + "Z",
@@ -98,7 +98,7 @@ def check_availability_and_schedule(input_data: dict) -> dict:
         },
     }
     result = run_client_sync(
-        "google_workspace", "create_meet_event",
+        "google_calendar", "create_meet_event",
         unwrap_envelope=True, fail_message="Google Calendar API error",
         calendar_id="primary",
         event_data=event_payload,

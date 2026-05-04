@@ -55,6 +55,46 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
         <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
       </svg>
     ),
+    gmail: (
+      <svg width={size} height={size} viewBox="0 0 256 193" xmlns="http://www.w3.org/2000/svg">
+        <path fill="#4285F4" d="M58.182 192.05V93.14L27.507 65.077 0 49.504v125.091c0 9.658 7.825 17.455 17.455 17.455z"/>
+        <path fill="#34A853" d="M197.818 192.05h40.727c9.659 0 17.455-7.826 17.455-17.455V49.505l-31.156 17.837-27.026 25.798z"/>
+        <path fill="#EA4335" d="M58.182 93.14l-4.174-38.605 4.174-36.927L128 69.864l69.818-52.364 4.671 33.654-4.67 39.987-69.819 52.363z"/>
+        <path fill="#FBBC04" d="M197.818 17.5V93.14L256 49.504V26.231c0-21.585-24.64-33.89-41.89-20.945z"/>
+        <path fill="#C5221F" d="M0 49.504l26.759 20.07L58.182 93.14V17.5L41.89 5.286C24.61-7.658 0 4.646 0 26.226z"/>
+      </svg>
+    ),
+    google_calendar: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect x="2" y="4" width="20" height="18" rx="2" fill="#fff" stroke="#dadce0" strokeWidth="0.5"/>
+        <rect x="2" y="4" width="20" height="4" rx="2" fill="#4285F4"/>
+        <rect x="6" y="2" width="2" height="4" rx="1" fill="#4285F4"/>
+        <rect x="16" y="2" width="2" height="4" rx="1" fill="#4285F4"/>
+        <text x="12" y="18" fontSize="10" fontWeight="700" textAnchor="middle" fill="#1a73e8" fontFamily="sans-serif">{new Date().getDate()}</text>
+      </svg>
+    ),
+    google_drive: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <path d="M9 2L1.5 15l3 5h7.5L9 2z" fill="#0F9D58"/>
+        <path d="M15 2L9 2l9 16h6L15 2z" fill="#FFCD40"/>
+        <path d="M4.5 20l3-5h15l-3 5h-15z" fill="#4285F4"/>
+      </svg>
+    ),
+    google_docs: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <path d="M5 2h9l5 5v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#4285F4"/>
+        <path d="M14 2v5h5l-5-5z" fill="#A1C2FA"/>
+        <rect x="6" y="11" width="12" height="1.2" rx="0.6" fill="#fff"/>
+        <rect x="6" y="14" width="12" height="1.2" rx="0.6" fill="#fff"/>
+        <rect x="6" y="17" width="9" height="1.2" rx="0.6" fill="#fff"/>
+      </svg>
+    ),
+    google_youtube: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <path d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2C.5 9.1.5 12 .5 12s0 2.9.5 4.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6a3 3 0 0 0 2.1-2.1c.5-1.9.5-4.8.5-4.8s0-2.9-.5-4.8z" fill="#FF0000"/>
+        <path d="M9.75 15.5l6-3.5-6-3.5v7z" fill="#fff"/>
+      </svg>
+    ),
     slack: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313z" fill="#E01E5A"/>

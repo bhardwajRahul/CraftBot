@@ -1,14 +1,24 @@
 # -*- coding: utf-8 -*-
-"""Google Workspace integration — Gmail + Calendar + Drive (OAuth + PKCE)."""
+"""Gmail — granular Google integration.
+
+A user can connect just Gmail (without granting Calendar/Drive/YouTube
+scopes) by clicking Connect on the Gmail card. The credential is saved
+to ``gmail.json``. The "Google Workspace" meta-integration also writes
+to this file when it cascades, so they stay interchangeable.
+
+Structure mirrors any single-purpose integration in this package — see
+``github.py`` for the canonical shape. The Google-specific pieces
+(``GoogleCredential``, ``OAuthFlow`` factory, token refresh) live in
+``_google_common.py`` and are shared with the other per-service
+integrations (calendar / drive / docs / youtube).
+"""
 from __future__ import annotations
 
 import asyncio
 import base64
 import mimetypes
 import os
-import time
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import timezone
 from email import encoders
 from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
@@ -19,121 +29,73 @@ from .. import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
-    OAuthFlow,
     PlatformMessage,
-    has_credential,
-    load_credential,
     register_client,
     register_handler,
-    remove_credential,
-    save_credential,
 )
-from ..config import ConfigStore
 from ..helpers import Result, arequest, request as http_request
 from ..logger import get_logger
+from ._google_common import (
+    GMAIL_SCOPES,
+    GoogleApiClientMixin,
+    GoogleCredential,
+    make_google_oauth,
+    run_google_login,
+    run_google_logout,
+    run_google_status,
+)
 
 logger = get_logger(__name__)
 
 GMAIL_API_BASE = "https://gmail.googleapis.com/gmail/v1"
-CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3"
-DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-
-GOOGLE_SCOPES = (
-    "https://www.googleapis.com/auth/gmail.modify "
-    "https://www.googleapis.com/auth/calendar "
-    "https://www.googleapis.com/auth/drive "
-    "https://www.googleapis.com/auth/contacts.readonly "
-    "https://www.googleapis.com/auth/userinfo.email "
-    "https://www.googleapis.com/auth/userinfo.profile "
-    "https://www.googleapis.com/auth/youtube.readonly "
-    "https://www.googleapis.com/auth/youtube.force-ssl"
-)
-
 POLL_INTERVAL = 5
 RETRY_DELAY = 10
 
 
-@dataclass
-class GoogleCredential:
-    access_token: str = ""
-    refresh_token: str = ""
-    token_expiry: float = 0.0
-    client_id: str = ""
-    client_secret: str = ""
-    email: str = ""
-
-
-GOOGLE = IntegrationSpec(
-    name="google",
+GMAIL = IntegrationSpec(
+    name="gmail",
     cred_class=GoogleCredential,
-    cred_file="google.json",
-    platform_id="google_workspace",
+    cred_file="gmail.json",
+    platform_id="gmail",
 )
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Handler
+# Handler — auth flow only
 # ════════════════════════════════════════════════════════════════════════
 
-@register_handler(GOOGLE.name)
-class GoogleHandler(IntegrationHandler):
-    spec = GOOGLE
-    display_name = "Google Workspace"
-    description = "Gmail, Calendar, Drive"
+@register_handler(GMAIL.name)
+class GmailHandler(IntegrationHandler):
+    spec = GMAIL
+    display_name = "Gmail"
+    description = "Email — read, search, and send"
     auth_type = "oauth"
-    icon = "google"
+    icon = "gmail"
     fields: List = []
 
-    oauth = OAuthFlow(
-        client_id_key="GOOGLE_CLIENT_ID",
-        client_secret_key="GOOGLE_CLIENT_SECRET",
-        auth_url="https://accounts.google.com/o/oauth2/v2/auth",
-        token_url=GOOGLE_TOKEN_URL,
-        userinfo_url="https://www.googleapis.com/oauth2/v2/userinfo",
-        scopes=GOOGLE_SCOPES,
-        use_pkce=True,
-        extra_auth_params={"access_type": "offline", "prompt": "consent"},
-    )
+    oauth = make_google_oauth(GMAIL_SCOPES)
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
-        result = await self.oauth.run()
-        if "error" in result and not result.get("access_token"):
-            return False, f"Google OAuth failed: {result['error']}"
-
-        info = result.get("userinfo", {})
-        save_credential(self.spec.cred_file, GoogleCredential(
-            access_token=result["access_token"],
-            refresh_token=result.get("refresh_token", ""),
-            token_expiry=time.time() + result.get("expires_in", 3600),
-            client_id=ConfigStore.get_oauth("GOOGLE_CLIENT_ID"),
-            client_secret=ConfigStore.get_oauth("GOOGLE_CLIENT_SECRET"),
-            email=info.get("email", ""),
-        ))
-        return True, f"Google connected as {info.get('email')}"
+        return await run_google_login(self.spec, self.oauth, "Gmail")
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
-            return False, "No Google credentials found."
-        remove_credential(self.spec.cred_file)
-        return True, "Removed Google credential."
+        return await run_google_logout(self.spec, "Gmail")
 
     async def status(self) -> Tuple[bool, str]:
-        if not has_credential(self.spec.cred_file):
-            return True, "Google: Not connected"
-        cred = load_credential(self.spec.cred_file, GoogleCredential)
-        email = cred.email if cred else "unknown"
-        return True, f"Google: Connected\n  - {email}"
+        return await run_google_status(self.spec, "Gmail")
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Client
+# Client — Gmail listener + REST methods
 # ════════════════════════════════════════════════════════════════════════
 
 @register_client
-class GoogleWorkspaceClient(BasePlatformClient):
-    spec = GOOGLE
-    PLATFORM_ID = GOOGLE.platform_id
+class GmailClient(GoogleApiClientMixin, BasePlatformClient):
+    # Mixin first so its concrete ``has_credentials`` / ``_load`` / token
+    # methods satisfy ``BasePlatformClient``'s abstract slots. See
+    # ``_google_common.py`` for the rationale.
+    spec = GMAIL
+    PLATFORM_ID = GMAIL.platform_id
 
     def __init__(self):
         super().__init__()
@@ -141,49 +103,6 @@ class GoogleWorkspaceClient(BasePlatformClient):
         self._poll_task: Optional[asyncio.Task] = None
         self._history_id: Optional[str] = None
         self._seen_message_ids: set = set()
-
-    def has_credentials(self) -> bool:
-        return has_credential(self.spec.cred_file)
-
-    def _load(self) -> GoogleCredential:
-        if self._cred is None:
-            self._cred = load_credential(self.spec.cred_file, GoogleCredential)
-        if self._cred is None:
-            raise RuntimeError("No Google credentials. Configure google.json first.")
-        return self._cred
-
-    def _ensure_token(self) -> str:
-        cred = self._load()
-        if cred.refresh_token and cred.token_expiry and time.time() > cred.token_expiry:
-            result = self.refresh_access_token()
-            if result:
-                return result
-        return cred.access_token
-
-    def refresh_access_token(self) -> Optional[str]:
-        cred = self._load()
-        if not all([cred.client_id, cred.client_secret, cred.refresh_token]):
-            return None
-        result = http_request("POST", GOOGLE_TOKEN_URL, data={
-            "client_id": cred.client_id,
-            "client_secret": cred.client_secret,
-            "refresh_token": cred.refresh_token,
-            "grant_type": "refresh_token",
-        }, expected=(200,))
-        if "error" in result:
-            return None
-        data = result["result"]
-        cred.access_token = data["access_token"]
-        cred.token_expiry = time.time() + data.get("expires_in", 3600) - 60
-        save_credential(self.spec.cred_file, cred)
-        self._cred = cred
-        return cred.access_token
-
-    def _headers(self) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {self._ensure_token()}", "Content-Type": "application/json"}
-
-    def _auth_header(self) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {self._ensure_token()}"}
 
     async def connect(self) -> None:
         self._load()
@@ -205,7 +124,7 @@ class GoogleWorkspaceClient(BasePlatformClient):
         try:
             profile = await self._async_get_profile()
             self._history_id = profile.get("historyId")
-            logger.info(f"[GOOGLE] Gmail profile: {profile.get('emailAddress')}, historyId: {self._history_id}")
+            logger.info(f"[GMAIL] profile: {profile.get('emailAddress')}, historyId: {self._history_id}")
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Gmail: {e}")
 
@@ -224,6 +143,8 @@ class GoogleWorkspaceClient(BasePlatformClient):
                 pass
         self._poll_task = None
 
+    # ----- Listener internals -----
+
     async def _async_get_profile(self) -> Dict[str, Any]:
         result = await arequest("GET", f"{GMAIL_API_BASE}/users/me/profile",
                                 headers=self._auth_header(), expected=(200,))
@@ -238,7 +159,7 @@ class GoogleWorkspaceClient(BasePlatformClient):
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"[GOOGLE] Poll error: {e}")
+                logger.error(f"[GMAIL] Poll error: {e}")
                 if "404" in str(e) or "historyId" in str(e).lower():
                     try:
                         profile = await self._async_get_profile()
@@ -261,7 +182,7 @@ class GoogleWorkspaceClient(BasePlatformClient):
         if "error" in result:
             if "404" in result["error"]:
                 raise RuntimeError("historyId expired (404)")
-            logger.warning(f"[GOOGLE] history.list {result['error']}")
+            logger.warning(f"[GMAIL] history.list {result['error']}")
             return
 
         data = result["result"] or {}
@@ -285,7 +206,7 @@ class GoogleWorkspaceClient(BasePlatformClient):
             try:
                 await self._fetch_and_dispatch(msg_id)
             except Exception as e:
-                logger.debug(f"[GOOGLE] Error processing message {msg_id}: {e}")
+                logger.debug(f"[GMAIL] Error processing message {msg_id}: {e}")
 
     async def _fetch_and_dispatch(self, msg_id: str) -> None:
         result = await arequest(
@@ -338,7 +259,8 @@ class GoogleWorkspaceClient(BasePlatformClient):
                 raw=msg,
             ))
 
-    # --- Gmail ---
+    # ----- REST methods -----
+
     @staticmethod
     def _encode_email(to_email: str, from_email: str, subject: str, body: str,
                       attachments: Optional[List[str]] = None) -> str:
@@ -419,76 +341,3 @@ class GoogleWorkspaceClient(BasePlatformClient):
             detail = self.get_email(msg["id"], full_body=full_body)
             emails.append(detail.get("result", detail) if "error" not in detail else detail)
         return {"ok": True, "result": emails}
-
-    # --- Calendar ---
-    def create_meet_event(self, calendar_id: str = "primary",
-                          event_data: Optional[Dict[str, Any]] = None) -> Result:
-        return http_request(
-            "POST", f"{CALENDAR_API_BASE}/calendars/{calendar_id}/events",
-            headers=self._headers(), params={"conferenceDataVersion": 1},
-            json=event_data or {},
-        )
-
-    def check_availability(self, calendar_id: str = "primary",
-                           time_min: Optional[str] = None,
-                           time_max: Optional[str] = None) -> Result:
-        return http_request(
-            "POST", f"{CALENDAR_API_BASE}/freeBusy",
-            headers=self._headers(),
-            json={"timeMin": time_min, "timeMax": time_max, "items": [{"id": calendar_id}]},
-            expected=(200,),
-        )
-
-    # --- Drive ---
-    def list_drive_files(self, folder_id: str, fields: Optional[str] = None) -> Result:
-        return http_request(
-            "GET", f"{DRIVE_API_BASE}/files", headers=self._auth_header(),
-            params={
-                "q": f"'{folder_id}' in parents and trashed = false",
-                "fields": fields or "files(id,name,mimeType,parents)",
-            },
-            expected=(200,),
-            transform=lambda d: d.get("files", []),
-        )
-
-    def create_drive_folder(self, name: str, parent_folder_id: Optional[str] = None) -> Result:
-        payload: Dict[str, Any] = {"name": name, "mimeType": "application/vnd.google-apps.folder"}
-        if parent_folder_id:
-            payload["parents"] = [parent_folder_id]
-        return http_request(
-            "POST", f"{DRIVE_API_BASE}/files", headers=self._headers(),
-            json=payload,
-        )
-
-    def get_drive_file(self, file_id: str, fields: Optional[str] = None) -> Result:
-        return http_request(
-            "GET", f"{DRIVE_API_BASE}/files/{file_id}",
-            headers=self._auth_header(),
-            params={"fields": fields or "id,parents"},
-            expected=(200,),
-        )
-
-    def move_drive_file(self, file_id: str, add_parents: str, remove_parents: str) -> Result:
-        params: Dict[str, str] = {"addParents": add_parents, "fields": "id,parents"}
-        if remove_parents:
-            params["removeParents"] = remove_parents
-        return http_request(
-            "PATCH", f"{DRIVE_API_BASE}/files/{file_id}",
-            headers=self._auth_header(), params=params, expected=(200,),
-        )
-
-    def find_drive_folder_by_name(self, name: str,
-                                   parent_folder_id: Optional[str] = None) -> Result:
-        q_parts = [
-            f"name = '{name}'",
-            "mimeType = 'application/vnd.google-apps.folder'",
-            "trashed = false",
-        ]
-        if parent_folder_id:
-            q_parts.append(f"'{parent_folder_id}' in parents")
-        return http_request(
-            "GET", f"{DRIVE_API_BASE}/files", headers=self._auth_header(),
-            params={"q": " and ".join(q_parts), "fields": "files(id,name)"},
-            expected=(200,),
-            transform=lambda d: (d.get("files") or [None])[0],
-        )
