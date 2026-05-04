@@ -16,6 +16,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from dataclasses import asdict, fields as dc_fields
+
+from .credentials_store import has_config, load_config, save_config
 from .registry import (
     autoload_integrations,
     get_all_clients,
@@ -106,6 +109,8 @@ def get_metadata(integration: str) -> Optional[Dict[str, Any]]:
     handler = get_handler(integration)
     if handler is None:
         return None
+    config_class = getattr(handler, "config_class", None)
+    config_fields = getattr(handler, "config_fields", []) or []
     return {
         "id": integration,
         "name": handler.display_name or integration,
@@ -113,6 +118,8 @@ def get_metadata(integration: str) -> Optional[Dict[str, Any]]:
         "auth_type": handler.auth_type,
         "fields": [dict(f) for f in handler.fields],
         "icon": getattr(handler, "icon", "") or "",
+        "has_config": config_class is not None,
+        "config_fields": [dict(f) for f in config_fields] if config_class else None,
     }
 
 
@@ -120,6 +127,112 @@ def list_metadata() -> List[Dict[str, Any]]:
     """Static UI metadata for every registered integration."""
     autoload_integrations()
     return [m for name in get_registered_handler_names() if (m := get_metadata(name))]
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Per-integration runtime config (post-connect knobs)
+# ════════════════════════════════════════════════════════════════════════
+
+def _config_filename(handler) -> str:
+    """Derive the config filename from the handler's spec.
+
+    Convention: ``<cred_file_stem>_config.json``. So ``github.json`` →
+    ``github_config.json``, ``whatsapp_web.json`` → ``whatsapp_web_config.json``.
+    Keeps config and credential files visually paired in ``.credentials/``."""
+    stem = handler.spec.cred_file
+    if stem.endswith(".json"):
+        stem = stem[:-5]
+    return f"{stem}_config.json"
+
+
+def _coerce(value: Any, type_: str) -> Any:
+    """Coerce an incoming UI value to the type the dataclass expects.
+
+    The frontend sends strings/lists/booleans; the dataclass may want int
+    or list. This is the only place we apply per-type coercion."""
+    if value is None:
+        return None
+    if type_ == "number":
+        try:
+            if isinstance(value, str):
+                return int(value) if "." not in value else float(value)
+            return value
+        except (TypeError, ValueError):
+            return value
+    if type_ == "checkbox":
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
+    if type_ == "list":
+        if isinstance(value, list):
+            return [str(v).strip() for v in value if str(v).strip()]
+        if isinstance(value, str):
+            return [s.strip() for s in value.split(",") if s.strip()]
+        return list(value or [])
+    # text / textarea / select → string
+    return value if isinstance(value, str) else str(value)
+
+
+def get_config_schema(integration: str) -> Optional[List[Dict[str, Any]]]:
+    """Return the handler's ``config_fields`` schema, or ``None`` if the
+    integration declares no runtime config."""
+    handler, _ = _resolve_handler(integration)
+    if handler is None:
+        return None
+    if getattr(handler, "config_class", None) is None:
+        return None
+    return [dict(f) for f in (handler.config_fields or [])]
+
+
+def get_config(integration: str) -> Optional[Dict[str, Any]]:
+    """Return the integration's current config as a plain dict.
+
+    If no config has been saved yet, returns the dataclass defaults so the
+    frontend can pre-populate the form. Returns ``None`` if the integration
+    declares no ``config_class`` at all."""
+    handler, _ = _resolve_handler(integration)
+    if handler is None:
+        return None
+    cls = getattr(handler, "config_class", None)
+    if cls is None:
+        return None
+    fname = _config_filename(handler)
+    obj = load_config(fname, cls) if has_config(fname) else cls()
+    if obj is None:
+        obj = cls()
+    return asdict(obj)
+
+
+def update_config(integration: str, values: Dict[str, Any]) -> Tuple[bool, str]:
+    """Coerce ``values`` per the handler's ``config_fields`` schema, build
+    a fresh ``config_class`` instance, persist it. Unknown keys are dropped.
+    Missing keys keep their dataclass defaults (so a partial UI update is
+    safe — the user can edit one field without resetting the others)."""
+    handler, err = _resolve_handler(integration)
+    if err:
+        return False, err
+    cls = getattr(handler, "config_class", None)
+    if cls is None:
+        return False, f"{integration} has no config_class declared"
+    schema = handler.config_fields or []
+    type_by_key = {f["key"]: f.get("type", "text") for f in schema}
+    valid_keys = {fld.name for fld in dc_fields(cls)}
+
+    fname = _config_filename(handler)
+    existing = load_config(fname, cls) if has_config(fname) else cls()
+    if existing is None:
+        existing = cls()
+    merged = asdict(existing)
+    for k, raw in (values or {}).items():
+        if k not in valid_keys:
+            continue
+        merged[k] = _coerce(raw, type_by_key.get(k, "text"))
+    try:
+        new_obj = cls(**merged)
+    except TypeError as e:
+        return False, f"Invalid config values: {e}"
+    save_config(fname, new_obj)
+    return True, f"{handler.display_name or integration} config saved"
 
 
 # ════════════════════════════════════════════════════════════════════════

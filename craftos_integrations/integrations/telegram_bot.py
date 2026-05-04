@@ -16,6 +16,7 @@ from .. import (
     IntegrationSpec,
     PlatformMessage,
     has_credential,
+    load_config,
     load_credential,
     register_client,
     register_handler,
@@ -72,12 +73,27 @@ class TelegramBotCredential:
     bot_username: str = ""
 
 
+@dataclass
+class TelegramBotConfig:
+    """Runtime knobs persisted to ``telegram_bot_config.json``."""
+    # When True, only forward messages from private 1:1 DMs (drops groups,
+    # supergroups, and channels). Closest analog to "self-only" for a bot,
+    # which has no self-chat concept of its own.
+    self_messages_only: bool = False
+
+
 TELEGRAM_BOT = IntegrationSpec(
     name="telegram_bot",
     cred_class=TelegramBotCredential,
     cred_file="telegram_bot.json",
     platform_id="telegram_bot",
 )
+
+
+def _telegram_bot_config_file() -> str:
+    """``telegram_bot.json`` → ``telegram_bot_config.json``."""
+    stem = TELEGRAM_BOT.cred_file
+    return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -93,6 +109,13 @@ class TelegramBotHandler(IntegrationHandler):
     icon = "telegram"
     fields = [
         {"key": "bot_token", "label": "Bot Token", "placeholder": "From @BotFather", "password": True},
+    ]
+
+    config_class = TelegramBotConfig
+    config_fields = [
+        {"key": "self_messages_only", "label": "Private DMs only", "type": "checkbox",
+         "help": "Only forward messages from 1:1 private chats with the bot. "
+                 "Drops group, supergroup, and channel messages before they reach the agent."},
     ]
 
     @property
@@ -304,6 +327,10 @@ class TelegramBotClient(BasePlatformClient):
 
         from_user = message.get("from", {})
         chat = message.get("chat", {})
+
+        cfg = load_config(_telegram_bot_config_file(), TelegramBotConfig) or TelegramBotConfig()
+        if cfg.self_messages_only and chat.get("type") != "private":
+            return
 
         sender_name = from_user.get("first_name", "")
         if from_user.get("last_name"):

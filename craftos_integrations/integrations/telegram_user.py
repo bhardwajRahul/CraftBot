@@ -17,6 +17,7 @@ from .. import (
     IntegrationSpec,
     PlatformMessage,
     has_credential,
+    load_config,
     load_credential,
     register_client,
     register_handler,
@@ -37,12 +38,28 @@ class TelegramUserCredential:
     phone_number: str = ""
 
 
+@dataclass
+class TelegramUserConfig:
+    """Runtime knobs persisted to ``telegram_user_config.json``."""
+    # When True, only forward messages from the user's own Saved Messages
+    # chat (chat_id == own user_id). All DMs from contacts and group/channel
+    # chatter are dropped before reaching the agent. Useful when the user
+    # wants Telegram to act as a personal command channel only.
+    self_messages_only: bool = False
+
+
 TELEGRAM_USER = IntegrationSpec(
     name="telegram_user",
     cred_class=TelegramUserCredential,
     cred_file="telegram_user.json",
     platform_id="telegram_user",
 )
+
+
+def _telegram_user_config_file() -> str:
+    """``telegram_user.json`` → ``telegram_user_config.json``."""
+    stem = TELEGRAM_USER.cred_file
+    return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
 # Module-level pending auth state (mirrors original handlers.py behaviour)
@@ -61,6 +78,13 @@ class TelegramUserHandler(IntegrationHandler):
     auth_type = "interactive"
     icon = "telegram"
     fields: List = []
+
+    config_class = TelegramUserConfig
+    config_fields = [
+        {"key": "self_messages_only", "label": "Self-messages only", "type": "checkbox",
+         "help": "Only forward messages from your own Saved Messages chat. "
+                 "Drops DMs from contacts and group/channel messages before they reach the agent."},
+    ]
 
     @property
     def subcommands(self) -> List[str]:
@@ -389,6 +413,10 @@ class TelegramUserClient(BasePlatformClient):
             return
         chat_id = event.chat_id
         is_saved_messages = (chat_id == self._my_user_id)
+
+        cfg = load_config(_telegram_user_config_file(), TelegramUserConfig) or TelegramUserConfig()
+        if cfg.self_messages_only and not is_saved_messages:
+            return
 
         if msg.out and not is_saved_messages:
             return

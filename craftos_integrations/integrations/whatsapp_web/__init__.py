@@ -23,6 +23,7 @@ from ... import (
     IntegrationSpec,
     PlatformMessage,
     has_credential,
+    load_config,
     load_credential,
     register_client,
     register_handler,
@@ -42,12 +43,28 @@ class WhatsAppWebCredential:
     owner_name: str = ""
 
 
+@dataclass
+class WhatsAppWebConfig:
+    """Runtime knobs persisted to ``whatsapp_web_config.json``."""
+    # When True, only forward messages the owner sent to themselves
+    # (self-chat). All other incoming messages — DMs from contacts, group
+    # chats — are dropped before reaching the agent. Useful when the user
+    # wants WhatsApp to act as a personal command channel only.
+    self_messages_only: bool = False
+
+
 WHATSAPP_WEB = IntegrationSpec(
     name="whatsapp_web",
     cred_class=WhatsAppWebCredential,
     cred_file="whatsapp_web.json",
     platform_id="whatsapp_web",
 )
+
+
+def _whatsapp_web_config_file() -> str:
+    """``whatsapp_web.json`` → ``whatsapp_web_config.json``."""
+    stem = WHATSAPP_WEB.cred_file
+    return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -60,6 +77,12 @@ class WhatsAppWebHandler(IntegrationHandler):
     display_name = "WhatsApp"
     description = "Messaging via Web (QR code)"
     auth_type = "interactive"
+    config_class = WhatsAppWebConfig
+    config_fields = [
+        {"key": "self_messages_only", "label": "Self-messages only", "type": "checkbox",
+         "help": "Only forward messages you send to yourself (the WhatsApp self-chat). "
+                 "Drops incoming DMs and group messages before they reach the agent."},
+    ]
     icon = "whatsapp"
     fields: List = []
 
@@ -382,6 +405,12 @@ class WhatsAppWebClient(BasePlatformClient):
 
     async def _handle_incoming_message(self, data: Dict[str, Any]) -> None:
         if not self._listening or not self._message_callback:
+            return
+
+        # Self-chat messages arrive via _handle_sent_message (from_me=True),
+        # so when self_messages_only is set we drop everything else here.
+        cfg = load_config(_whatsapp_web_config_file(), WhatsAppWebConfig) or WhatsAppWebConfig()
+        if cfg.self_messages_only:
             return
 
         msg_id = data.get("id", "")

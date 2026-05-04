@@ -94,6 +94,24 @@ class IntegrationHandler(ABC):
     # "Mail", "FileText". Empty string falls back to a generic icon.
     icon: str = ""
 
+    # ----- Optional runtime config (post-connect knobs) -----
+    # ``config_class`` is a plain ``@dataclass`` whose fields hold the
+    # per-integration settings users tune from the Configure UI (e.g.
+    # ``watch_tag``, ``watch_repos``, ``channel_filter``). ``config_fields``
+    # is the matching render schema the frontend uses to draw the form.
+    # Both default to "no config" — the Configure section is hidden for
+    # integrations that don't declare them. See ``service.get_config`` /
+    # ``service.update_config`` for how they get loaded and saved.
+    #
+    # Schema entry shape:
+    #   {"key": "watch_tag", "label": "Watch tag",
+    #    "type": "text" | "textarea" | "list" | "checkbox" | "select" | "number",
+    #    "placeholder": "@craftbot",      # optional
+    #    "help": "Trigger keyword.",      # optional
+    #    "options": [...]}                # required when type=="select"
+    config_class: Optional[type] = None
+    config_fields: List[Dict[str, Any]] = []
+
     @abstractmethod
     async def login(self, args: List[str]) -> Tuple[bool, str]: ...
 

@@ -16,7 +16,9 @@ from .. import (
     IntegrationSpec,
     PlatformMessage,
     has_credential,
+    load_config,
     load_credential,
+    save_config,
     register_client,
     register_handler,
     remove_credential,
@@ -42,8 +44,14 @@ class JiraCredential:
     refresh_token: str = ""
     token_expiry: float = 0.0
     site_url: str = ""
-    watch_labels: List[str] = field(default_factory=list)
+
+
+@dataclass
+class JiraConfig:
+    """Runtime knobs separate from the credential. Persisted as
+    ``jira_config.json`` next to ``jira.json``."""
     watch_tag: str = ""
+    watch_labels: List[str] = field(default_factory=list)
 
 
 JIRA = IntegrationSpec(
@@ -52,6 +60,12 @@ JIRA = IntegrationSpec(
     cred_file="jira.json",
     platform_id="jira",
 )
+
+
+def _jira_config_file() -> str:
+    """``jira.json`` → ``jira_config.json``."""
+    stem = JIRA.cred_file
+    return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -69,6 +83,15 @@ class JiraHandler(IntegrationHandler):
         {"key": "domain", "label": "Jira Domain", "placeholder": "mycompany.atlassian.net", "password": False},
         {"key": "email", "label": "Email", "placeholder": "you@example.com", "password": False},
         {"key": "api_token", "label": "API Token", "placeholder": "Enter Jira API token", "password": True},
+    ]
+    config_class = JiraConfig
+    config_fields = [
+        {"key": "watch_tag", "label": "Watch tag", "type": "text",
+         "placeholder": "@craftbot",
+         "help": "Trigger keyword in issue comments. Leave empty to react to all updates."},
+        {"key": "watch_labels", "label": "Watched labels", "type": "list",
+         "placeholder": "bug",
+         "help": "Comma-separated. Leave empty to watch issues with any label."},
     ]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -152,8 +175,8 @@ class JiraHandler(IntegrationHandler):
             return True, "Jira: Not connected"
         domain = cred.domain or cred.site_url or "unknown"
         email = cred.email or "OAuth"
-        labels = cred.watch_labels
-        label_info = f" [watching: {', '.join(labels)}]" if labels else ""
+        cfg = load_config(_jira_config_file(), JiraConfig) or JiraConfig()
+        label_info = f" [watching: {', '.join(cfg.watch_labels)}]" if cfg.watch_labels else ""
         return True, f"Jira: Connected\n  - {email} ({domain}){label_info}"
 
 
@@ -221,42 +244,41 @@ class JiraClient(BasePlatformClient):
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
         return await self.add_comment(recipient, text)
 
-    # ----- Watch labels / tag -----
+    # ----- Watch labels / tag (read from jira_config.json) -----
+
+    def _config(self) -> JiraConfig:
+        return load_config(_jira_config_file(), JiraConfig) or JiraConfig()
 
     def get_watch_labels(self) -> List[str]:
-        return list(self._load().watch_labels)
+        return list(self._config().watch_labels)
 
     def set_watch_labels(self, labels: List[str]) -> None:
-        cred = self._load()
-        cred.watch_labels = [lbl.strip() for lbl in labels if lbl.strip()]
-        save_credential(self.spec.cred_file, cred)
-        self._cred = cred
-        logger.info(f"[JIRA] Watch labels set to: {cred.watch_labels or '(all issues)'}")
+        cfg = self._config()
+        cfg.watch_labels = [lbl.strip() for lbl in labels if lbl.strip()]
+        save_config(_jira_config_file(), cfg)
+        logger.info(f"[JIRA] Watch labels set to: {cfg.watch_labels or '(all issues)'}")
 
     def add_watch_label(self, label: str) -> None:
-        cred = self._load()
+        cfg = self._config()
         label = label.strip()
-        if label and label not in cred.watch_labels:
-            cred.watch_labels.append(label)
-            save_credential(self.spec.cred_file, cred)
-            self._cred = cred
+        if label and label not in cfg.watch_labels:
+            cfg.watch_labels.append(label)
+            save_config(_jira_config_file(), cfg)
 
     def remove_watch_label(self, label: str) -> None:
-        cred = self._load()
+        cfg = self._config()
         label = label.strip()
-        if label in cred.watch_labels:
-            cred.watch_labels.remove(label)
-            save_credential(self.spec.cred_file, cred)
-            self._cred = cred
+        if label in cfg.watch_labels:
+            cfg.watch_labels.remove(label)
+            save_config(_jira_config_file(), cfg)
 
     def get_watch_tag(self) -> str:
-        return self._load().watch_tag
+        return self._config().watch_tag
 
     def set_watch_tag(self, tag: str) -> None:
-        cred = self._load()
-        cred.watch_tag = tag.strip()
-        save_credential(self.spec.cred_file, cred)
-        self._cred = cred
+        cfg = self._config()
+        cfg.watch_tag = tag.strip()
+        save_config(_jira_config_file(), cfg)
 
     # ----- Listening -----
 
@@ -309,10 +331,11 @@ class JiraClient(BasePlatformClient):
         if not self._last_poll_time:
             return
 
-        cred = self._load()
+        self._load()  # ensure credentials are loaded; required by _base_url()/_headers()
+        cfg = self._config()
         jql_parts = [f'updated >= "{self._last_poll_time}"']
-        if cred.watch_labels:
-            label_clauses = " OR ".join(f'labels = "{lbl}"' for lbl in cred.watch_labels)
+        if cfg.watch_labels:
+            label_clauses = " OR ".join(f'labels = "{lbl}"' for lbl in cfg.watch_labels)
             jql_parts.append(f"({label_clauses})")
         jql = " AND ".join(jql_parts) + " ORDER BY updated ASC"
 
@@ -351,7 +374,7 @@ class JiraClient(BasePlatformClient):
         if not self._message_callback:
             return
 
-        cred = self._load()
+        cfg = self._config()
         fields_data = issue.get("fields", {})
         issue_key = issue.get("key", "")
         summary = fields_data.get("summary", "")
@@ -367,7 +390,7 @@ class JiraClient(BasePlatformClient):
         reporter_name = reporter.get("displayName", "Unknown")
         comments = (fields_data.get("comment") or {}).get("comments", [])
 
-        watch_tag = cred.watch_tag
+        watch_tag = cfg.watch_tag
         if watch_tag:
             matching_comment = None
             tag_lower = watch_tag.lower()

@@ -40,9 +40,13 @@ from .base import (
 )
 from .config import ConfigStore, configure
 from .credentials_store import (
+    has_config,
     has_credential,
+    load_config,
     load_credential,
+    remove_config,
     remove_credential,
+    save_config,
     save_credential,
 )
 from .manager import (
@@ -67,6 +71,8 @@ from .service import (
     connect_oauth,
     connect_token,
     disconnect,
+    get_config,
+    get_config_schema,
     get_integration_accounts,
     get_integration_auth_type,
     get_integration_fields,
@@ -83,6 +89,7 @@ from .service import (
     parse_status_accounts,
     send_message,
     status,
+    update_config,
 )
 from .spec import IntegrationSpec
 
@@ -114,6 +121,14 @@ __all__ = [
     "load_credential",
     "has_credential",
     "remove_credential",
+    # Per-integration runtime config
+    "save_config",
+    "load_config",
+    "has_config",
+    "remove_config",
+    "get_config",
+    "update_config",
+    "get_config_schema",
     # OAuth helper
     "OAuthFlow",
     "REDIRECT_URI",

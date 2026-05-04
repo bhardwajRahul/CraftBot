@@ -19,7 +19,9 @@ from .. import (
     IntegrationSpec,
     PlatformMessage,
     has_credential,
+    load_config,
     load_credential,
+    save_config,
     register_client,
     register_handler,
     remove_credential,
@@ -43,6 +45,12 @@ class TwitterCredential:
     access_token_secret: str = ""
     user_id: str = ""
     username: str = ""
+
+
+@dataclass
+class TwitterConfig:
+    """Runtime knobs separate from the credential — persisted as
+    ``twitter_config.json``."""
     watch_tag: str = ""
 
 
@@ -52,6 +60,12 @@ TWITTER = IntegrationSpec(
     cred_file="twitter.json",
     platform_id="twitter",
 )
+
+
+def _twitter_config_file() -> str:
+    """``twitter.json`` → ``twitter_config.json``."""
+    stem = TWITTER.cred_file
+    return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
 def _oauth1_header(
@@ -106,6 +120,12 @@ class TwitterHandler(IntegrationHandler):
         {"key": "access_token", "label": "Access Token", "placeholder": "Enter access token", "password": True},
         {"key": "access_token_secret", "label": "Access Token Secret", "placeholder": "Enter access token secret", "password": True},
     ]
+    config_class = TwitterConfig
+    config_fields = [
+        {"key": "watch_tag", "label": "Watch tag", "type": "text",
+         "placeholder": "@craftbot",
+         "help": "Trigger keyword in mentions. Leave empty to react to all mentions."},
+    ]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
         if len(args) < 4:
@@ -159,7 +179,8 @@ class TwitterHandler(IntegrationHandler):
         if not cred:
             return True, "Twitter/X: Not connected"
         username = cred.username or "unknown"
-        tag_info = f" [tag: {cred.watch_tag}]" if cred.watch_tag else ""
+        cfg = load_config(_twitter_config_file(), TwitterConfig) or TwitterConfig()
+        tag_info = f" [tag: {cfg.watch_tag}]" if cfg.watch_tag else ""
         return True, f"Twitter/X: Connected\n  - @{username}{tag_info}"
 
 
@@ -206,14 +227,16 @@ class TwitterClient(BasePlatformClient):
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
         return await self.post_tweet(text, reply_to=recipient if recipient else None)
 
+    def _config(self) -> TwitterConfig:
+        return load_config(_twitter_config_file(), TwitterConfig) or TwitterConfig()
+
     def get_watch_tag(self) -> str:
-        return self._load().watch_tag
+        return self._config().watch_tag
 
     def set_watch_tag(self, tag: str) -> None:
-        cred = self._load()
-        cred.watch_tag = tag.strip()
-        save_credential(self.spec.cred_file, cred)
-        self._cred = cred
+        cfg = self._config()
+        cfg.watch_tag = tag.strip()
+        save_config(_twitter_config_file(), cfg)
 
     @property
     def supports_listening(self) -> bool:
@@ -332,14 +355,13 @@ class TwitterClient(BasePlatformClient):
         if not self._message_callback:
             return
 
-        cred = self._load()
         text = tweet.get("text", "")
         author_id = tweet.get("author_id", "")
         author_info = users_map.get(author_id, {})
         author_username = author_info.get("username", "")
         author_name = author_info.get("name", author_username)
 
-        watch_tag = cred.watch_tag
+        watch_tag = self._config().watch_tag
         if watch_tag:
             if watch_tag.lower() not in text.lower():
                 return

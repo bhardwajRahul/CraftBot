@@ -30,6 +30,17 @@ interface IntegrationAccount {
   id: string
 }
 
+// Schema for a single config input rendered by the Configure section in
+// the Manage modal. Sourced from the backend handler's ``config_fields``.
+interface ConfigField {
+  key: string
+  label: string
+  type: 'text' | 'textarea' | 'list' | 'checkbox' | 'select' | 'number'
+  placeholder?: string
+  help?: string
+  options?: Array<{ value: string; label: string }>  // required when type==='select'
+}
+
 interface Integration {
   id: string
   name: string
@@ -39,6 +50,8 @@ interface Integration {
   accounts: IntegrationAccount[]
   fields: IntegrationField[]
   icon?: string  // Lucide icon name supplied by the backend handler
+  has_config?: boolean
+  config_fields?: ConfigField[] | null
 }
 
 // Integration icon component. Lookup order:
@@ -185,6 +198,141 @@ const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; s
   return <span className={styles.integrationIconSvg}><Globe size={size} /></span>
 }
 
+// Schema-driven Configure form. Renders one input per ``ConfigField`` and
+// flushes its values back to the parent via ``onChange``. Adding a new
+// supported ``type`` is one ``case`` in the renderField switch — no other
+// file changes needed.
+const ConfigForm = ({
+  integrationId,
+  schema,
+  values,
+  onChange,
+  saving,
+  onSave,
+}: {
+  integrationId: string
+  schema: ConfigField[]
+  values: Record<string, any>
+  onChange: (values: Record<string, any>) => void
+  saving: boolean
+  onSave: () => void
+}) => {
+  const setField = (key: string, value: any) => {
+    onChange({ ...values, [key]: value })
+  }
+
+  const renderField = (field: ConfigField) => {
+    const cur = values[field.key]
+    const id = `cfg-${integrationId}-${field.key}`
+
+    switch (field.type) {
+      case 'textarea':
+        return (
+          <textarea
+            id={id}
+            className={styles.input}
+            placeholder={field.placeholder}
+            value={cur ?? ''}
+            onChange={e => setField(field.key, e.target.value)}
+            rows={4}
+          />
+        )
+
+      case 'list': {
+        // Comma-separated <input>. Backend coerces "a, b, c" → ["a","b","c"].
+        const display = Array.isArray(cur) ? cur.join(', ') : (cur ?? '')
+        return (
+          <input
+            id={id}
+            type="text"
+            className={styles.input}
+            placeholder={field.placeholder}
+            value={display}
+            onChange={e => setField(field.key, e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+          />
+        )
+      }
+
+      case 'checkbox':
+        return (
+          <label htmlFor={id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              id={id}
+              type="checkbox"
+              checked={Boolean(cur)}
+              onChange={e => setField(field.key, e.target.checked)}
+            />
+            <span>{field.help || field.label}</span>
+          </label>
+        )
+
+      case 'select':
+        return (
+          <select
+            id={id}
+            className={styles.input}
+            value={cur ?? ''}
+            onChange={e => setField(field.key, e.target.value)}
+          >
+            {(field.options ?? []).map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        )
+
+      case 'number':
+        return (
+          <input
+            id={id}
+            type="number"
+            className={styles.input}
+            placeholder={field.placeholder}
+            value={cur ?? ''}
+            onChange={e => setField(field.key, e.target.value)}
+          />
+        )
+
+      case 'text':
+      default:
+        return (
+          <input
+            id={id}
+            type="text"
+            className={styles.input}
+            placeholder={field.placeholder}
+            value={cur ?? ''}
+            onChange={e => setField(field.key, e.target.value)}
+          />
+        )
+    }
+  }
+
+  return (
+    <div className={styles.connectForm}>
+      {schema.map(field => (
+        <div key={field.key} className={styles.fieldGroup}>
+          {/* Checkbox renders its own label (next to the box). For every
+              other type the label sits above the input. */}
+          {field.type !== 'checkbox' && (
+            <label htmlFor={`cfg-${integrationId}-${field.key}`} className={styles.fieldLabel}>
+              {field.label}
+            </label>
+          )}
+          {renderField(field)}
+          {field.help && field.type !== 'checkbox' && (
+            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 4 }}>{field.help}</p>
+          )}
+        </div>
+      ))}
+      <div className={styles.modalActions}>
+        <Button variant="primary" onClick={onSave} disabled={saving}>
+          {saving ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save'}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 export function IntegrationsSettings() {
   const { send, onMessage, isConnected } = useSettingsWebSocket()
   const { showToast } = useToast()
@@ -221,6 +369,14 @@ export function IntegrationsSettings() {
     id: string
     label: string
   } | null>(null)
+
+  // Per-integration runtime config — populated from integration_get_config
+  // when the Manage modal opens for an integration with has_config === true.
+  // ``configValues`` is keyed by config_field.key. The form is fully driven
+  // by ``managingIntegration.config_fields`` (the schema from the backend).
+  const [configValues, setConfigValues] = useState<Record<string, any>>({})
+  const [configLoading, setConfigLoading] = useState(false)
+  const [configSaving, setConfigSaving] = useState(false)
 
   // WhatsApp QR code state
   const [whatsappQrCode, setWhatsappQrCode] = useState<string | null>(null)
@@ -284,8 +440,43 @@ export function IntegrationsSettings() {
         if (d.success && d.integration) {
           setManagingIntegration(d.integration)
           setShowManageModal(true)
+          // If this integration has runtime config, kick off a fetch so the
+          // Configure section is populated by the time the user scrolls to it.
+          if (d.integration.has_config) {
+            setConfigLoading(true)
+            setConfigValues({})
+            send('integration_get_config', { id: d.integration.id })
+          }
         } else {
           showToast('error', d.error || 'Failed to get integration info')
+        }
+      }),
+      // Per-integration runtime config (schema-driven; works for every
+      // integration that declares config_class on its handler).
+      onMessage('integration_config', (data: unknown) => {
+        const d = data as {
+          id: string; success: boolean
+          schema?: ConfigField[]; values?: Record<string, any>
+          error?: string
+        }
+        setConfigLoading(false)
+        if (d.success) {
+          setConfigValues(d.values || {})
+        } else if (d.error) {
+          showToast('error', d.error)
+        }
+      }),
+      onMessage('integration_config_updated', (data: unknown) => {
+        const d = data as {
+          id: string; success: boolean
+          message?: string; values?: Record<string, any>; error?: string
+        }
+        setConfigSaving(false)
+        if (d.success) {
+          showToast('success', d.message || 'Settings saved')
+          if (d.values) setConfigValues(d.values)
+        } else {
+          showToast('error', d.error || d.message || 'Failed to save settings')
         }
       }),
       // WhatsApp QR code handlers
@@ -461,12 +652,6 @@ export function IntegrationsSettings() {
       id: targetId,
       account_id: accountId,
     })
-  }
-
-  const handleAddAnother = () => {
-    if (!managingIntegration) return
-    setShowManageModal(false)
-    handleOpenConnect(managingIntegration)
   }
 
   const filteredIntegrations = integrations
@@ -883,11 +1068,34 @@ export function IntegrationsSettings() {
                   ))}
                 </div>
               )}
-              <div className={styles.modalActions}>
-                <Button variant="secondary" onClick={handleAddAnother} icon={<Plus size={14} />}>
-                  Add Another Account
-                </Button>
-              </div>
+              {/* Configure — schema-driven form, only shown for integrations
+                  whose handler declared ``config_class`` + ``config_fields``. */}
+              {managingIntegration.has_config && (managingIntegration.config_fields?.length ?? 0) > 0 && (
+                <>
+                  <h4 className={styles.manageSubtitle}>Configure</h4>
+                  {configLoading ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
+                      <Loader2 size={16} className={styles.spinning} />
+                      <span>Loading settings…</span>
+                    </div>
+                  ) : (
+                    <ConfigForm
+                      integrationId={managingIntegration.id}
+                      schema={managingIntegration.config_fields ?? []}
+                      values={configValues}
+                      onChange={setConfigValues}
+                      saving={configSaving}
+                      onSave={() => {
+                        setConfigSaving(true)
+                        send('integration_update_config', {
+                          id: managingIntegration.id,
+                          values: configValues,
+                        })
+                      }}
+                    />
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>

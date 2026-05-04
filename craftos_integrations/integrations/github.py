@@ -24,7 +24,9 @@ from .. import (
     IntegrationSpec,
     PlatformMessage,
     has_credential,
+    load_config,
     load_credential,
+    save_config,
     register_client,
     register_handler,
     remove_credential,
@@ -44,8 +46,14 @@ RETRY_DELAY = 30
 class GitHubCredential:
     access_token: str = ""
     username: str = ""
-    watch_repos: List[str] = field(default_factory=list)
+
+
+@dataclass
+class GitHubConfig:
+    """Runtime knobs separate from the credential — loaded fresh from
+    ``github_config.json`` whenever the client reads them."""
     watch_tag: str = ""
+    watch_repos: List[str] = field(default_factory=list)
 
 
 GITHUB = IntegrationSpec(
@@ -54,6 +62,13 @@ GITHUB = IntegrationSpec(
     cred_file="github.json",
     platform_id="github",
 )
+
+
+def _github_config_file() -> str:
+    """``github.json`` → ``github_config.json`` — must match the convention
+    in ``service._config_filename``."""
+    stem = GITHUB.cred_file
+    return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -69,6 +84,15 @@ class GitHubHandler(IntegrationHandler):
     icon = "github"
     fields = [
         {"key": "access_token", "label": "Personal Access Token", "placeholder": "ghp_...", "password": True},
+    ]
+    config_class = GitHubConfig
+    config_fields = [
+        {"key": "watch_tag", "label": "Watch tag", "type": "text",
+         "placeholder": "@craftbot",
+         "help": "Trigger keyword in PR/issue comments. Leave empty to react to all events."},
+        {"key": "watch_repos", "label": "Watched repos", "type": "list",
+         "placeholder": "owner/repo",
+         "help": "Comma-separated. Leave empty to watch every repo the token has access to."},
     ]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -114,8 +138,9 @@ class GitHubHandler(IntegrationHandler):
         if not cred:
             return True, "GitHub: Not connected"
         username = cred.username or "unknown"
-        tag_info = f" [tag: {cred.watch_tag}]" if cred.watch_tag else ""
-        repos_info = f" [repos: {', '.join(cred.watch_repos)}]" if cred.watch_repos else ""
+        cfg = load_config(_github_config_file(), GitHubConfig) or GitHubConfig()
+        tag_info = f" [tag: {cfg.watch_tag}]" if cfg.watch_tag else ""
+        repos_info = f" [repos: {', '.join(cfg.watch_repos)}]" if cfg.watch_repos else ""
         return True, f"GitHub: Connected\n  - @{username}{tag_info}{repos_info}"
 
 
@@ -165,27 +190,35 @@ class GitHubClient(BasePlatformClient):
         except (ValueError, IndexError):
             return {"error": f"Invalid recipient format. Use 'owner/repo#number', got: {recipient}"}
 
-    # ----- Watch tag / repos -----
+    # ----- Watch tag / repos (read from github_config.json) -----
+
+    def _config_file(self) -> str:
+        # Convention: <cred-stem>_config.json (matches service._config_filename)
+        stem = self.spec.cred_file
+        return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
+
+    def _config(self) -> GitHubConfig:
+        """Load the runtime config fresh each time. Cheap (small JSON read)
+        and avoids stale-cache bugs when the user updates from the UI."""
+        return load_config(self._config_file(), GitHubConfig) or GitHubConfig()
 
     def get_watch_tag(self) -> str:
-        return self._load().watch_tag
+        return self._config().watch_tag
 
     def set_watch_tag(self, tag: str) -> None:
-        cred = self._load()
-        cred.watch_tag = tag.strip()
-        save_credential(self.spec.cred_file, cred)
-        self._cred = cred
-        logger.info(f"[GITHUB] Watch tag set to: {cred.watch_tag or '(disabled)'}")
+        cfg = self._config()
+        cfg.watch_tag = tag.strip()
+        save_config(self._config_file(), cfg)
+        logger.info(f"[GITHUB] Watch tag set to: {cfg.watch_tag or '(disabled)'}")
 
     def get_watch_repos(self) -> List[str]:
-        return list(self._load().watch_repos)
+        return list(self._config().watch_repos)
 
     def set_watch_repos(self, repos: List[str]) -> None:
-        cred = self._load()
-        cred.watch_repos = [r.strip() for r in repos if r.strip()]
-        save_credential(self.spec.cred_file, cred)
-        self._cred = cred
-        logger.info(f"[GITHUB] Watch repos set to: {cred.watch_repos or '(all)'}")
+        cfg = self._config()
+        cfg.watch_repos = [r.strip() for r in repos if r.strip()]
+        save_config(self._config_file(), cfg)
+        logger.info(f"[GITHUB] Watch repos set to: {cfg.watch_repos or '(all)'}")
 
     # ----- Listening -----
 
@@ -218,8 +251,9 @@ class GitHubClient(BasePlatformClient):
         self._listening = True
         self._poll_task = asyncio.create_task(self._poll_loop())
 
-        tag_info = cred.watch_tag or "(disabled — all events)"
-        repos_info = ", ".join(cred.watch_repos) if cred.watch_repos else "(all repos)"
+        cfg = self._config()
+        tag_info = cfg.watch_tag or "(disabled — all events)"
+        repos_info = ", ".join(cfg.watch_repos) if cfg.watch_repos else "(all repos)"
         logger.info(f"[GITHUB] Poller started — tag: {tag_info} | repos: {repos_info}")
 
     async def stop_listening(self) -> None:
@@ -280,7 +314,7 @@ class GitHubClient(BasePlatformClient):
         }
 
     async def _check_notifications(self) -> None:
-        cred = self._load()
+        cfg = self._config()
         result = await asyncio.to_thread(self._check_notifications_sync)
         if result is None:
             return
@@ -295,7 +329,7 @@ class GitHubClient(BasePlatformClient):
             self._seen_ids.add(notif_id)
 
             repo_full = notif.get("repository", {}).get("full_name", "")
-            if cred.watch_repos and repo_full not in cred.watch_repos:
+            if cfg.watch_repos and repo_full not in cfg.watch_repos:
                 continue
 
             await self._dispatch_notification(notif)
@@ -318,7 +352,7 @@ class GitHubClient(BasePlatformClient):
         if not self._message_callback:
             return
 
-        cred = self._load()
+        cfg = self._config()
         reason = notif.get("reason", "")
         subject = notif.get("subject", {})
         subject_type = subject.get("type", "")
@@ -334,7 +368,7 @@ class GitHubClient(BasePlatformClient):
                 self._fetch_comment_sync, latest_comment_url,
             )
 
-        watch_tag = cred.watch_tag
+        watch_tag = cfg.watch_tag
         if watch_tag:
             if not comment_body or watch_tag.lower() not in comment_body.lower():
                 return

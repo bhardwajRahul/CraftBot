@@ -18,6 +18,7 @@ import asyncio
 import base64
 import mimetypes
 import os
+from dataclasses import dataclass
 from datetime import timezone
 from email import encoders
 from email.mime.base import MIMEBase
@@ -30,6 +31,7 @@ from .. import (
     IntegrationHandler,
     IntegrationSpec,
     PlatformMessage,
+    load_config,
     register_client,
     register_handler,
 )
@@ -60,6 +62,23 @@ GMAIL = IntegrationSpec(
 )
 
 
+@dataclass
+class GmailConfig:
+    """Runtime knobs persisted to ``gmail_config.json``."""
+    # When True (default), every new INBOX message is forwarded to the
+    # agent as a PlatformMessage. When False, the listener still polls
+    # Gmail history (so send/read REST methods stay live) but does not
+    # dispatch incoming emails to the agent — Gmail becomes effectively
+    # send-only.
+    process_incoming: bool = True
+
+
+def _gmail_config_file() -> str:
+    """``gmail.json`` → ``gmail_config.json``."""
+    stem = GMAIL.cred_file
+    return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
+
+
 # ════════════════════════════════════════════════════════════════════════
 # Handler — auth flow only
 # ════════════════════════════════════════════════════════════════════════
@@ -72,6 +91,13 @@ class GmailHandler(IntegrationHandler):
     auth_type = "oauth"
     icon = "gmail"
     fields: List = []
+
+    config_class = GmailConfig
+    config_fields = [
+        {"key": "process_incoming", "label": "Auto-process incoming emails", "type": "checkbox",
+         "help": "When on, every new INBOX message is forwarded to the agent. "
+                 "Turn off to keep Gmail send-only — the agent ignores incoming mail."},
+    ]
 
     oauth = make_google_oauth(GMAIL_SCOPES)
 
@@ -209,6 +235,10 @@ class GmailClient(GoogleApiClientMixin, BasePlatformClient):
                 logger.debug(f"[GMAIL] Error processing message {msg_id}: {e}")
 
     async def _fetch_and_dispatch(self, msg_id: str) -> None:
+        cfg = load_config(_gmail_config_file(), GmailConfig) or GmailConfig()
+        if not cfg.process_incoming:
+            return
+
         result = await arequest(
             "GET", f"{GMAIL_API_BASE}/users/me/messages/{msg_id}",
             headers=self._auth_header(),
