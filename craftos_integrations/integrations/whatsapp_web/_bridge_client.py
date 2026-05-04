@@ -62,31 +62,117 @@ class WhatsAppBridge:
     def set_event_callback(self, callback: Optional[EventCallback]) -> None:
         self._event_callback = callback
 
+    def _clear_stale_session_locks(self) -> None:
+        """Best-effort cleanup of orphaned Chromium state in the auth dir.
+
+        wwebjs uses Puppeteer to launch a Chromium pinned to ``auth_dir``.
+        If the agent or the Node bridge is killed without going through
+        ``client.destroy()``, Chromium leaves singleton lock files behind
+        and (on Windows) the ``chrome.exe`` child process can outlive its
+        Node parent. The next bridge launch then fails with
+        "The browser is already running for ..." because Chromium thinks
+        another instance owns the directory.
+
+        We:
+          1. Find any orphan Chromium processes whose ``--user-data-dir``
+             argument resolves to OUR auth directory, and kill them.
+          2. Remove all known singleton/lock files Chromium leaves
+             (``SingletonLock``, ``SingletonSocket``, ``SingletonCookie``,
+             ``lockfile`` etc.) under the session subdirectory.
+
+        Matched by absolute path, not basename, so we don't kill unrelated
+        Chrome processes.
+        """
+        auth_dir = Path(self._auth_dir).resolve()
+        session_dir = auth_dir / "session"
+
+        # 1. Kill orphan Chromium processes pinned to our auth dir
+        killed = 0
+        try:
+            import psutil  # type: ignore[import-untyped]
+            for proc in psutil.process_iter(attrs=["pid", "name", "cmdline"]):
+                try:
+                    name = (proc.info.get("name") or "").lower()
+                    if name not in ("chrome.exe", "chrome", "chromium", "chromium.exe"):
+                        continue
+                    cmdline = proc.info.get("cmdline") or []
+                    user_data_dir = None
+                    for arg in cmdline:
+                        if isinstance(arg, str) and arg.startswith("--user-data-dir="):
+                            user_data_dir = arg.split("=", 1)[1].strip('"').strip("'")
+                            break
+                    if not user_data_dir:
+                        continue
+                    if Path(user_data_dir).resolve() == session_dir:
+                        proc.kill()
+                        killed += 1
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+        except ImportError:
+            # No psutil — fall back to taskkill on Windows. Best-effort
+            # match on the full path string in command line.
+            if os.name == "nt":
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/IM", "chrome.exe",
+                         "/FI", f"WINDOWTITLE eq *{session_dir.name}*"],
+                        capture_output=True, timeout=5,
+                    )
+                except Exception:
+                    pass
+
+        # 2. Delete singleton/lock files. Chromium creates these in the
+        # user-data-dir at every launch and uses them to detect
+        # already-running instances.
+        lock_names = (
+            "SingletonLock", "SingletonSocket", "SingletonCookie",
+            "lockfile", "Singleton",
+        )
+        removed = 0
+        for name in lock_names:
+            f = session_dir / name
+            try:
+                if f.is_symlink() or f.exists():
+                    f.unlink(missing_ok=True)
+                    removed += 1
+            except Exception as e:
+                logger.debug(f"[WA-Bridge] could not remove {f}: {e}")
+
+        if killed or removed:
+            logger.info(
+                f"[WA-Bridge] cleared stale session state "
+                f"(killed {killed} orphan Chromium proc(s), removed {removed} lock file(s))"
+            )
+
+    def _wipe_orphan_localauth_if_disconnected(self) -> None:
+        """Defense-in-depth: if the user's top-level credential file is gone
+        but wwebjs's LocalAuth data still exists, the user has disconnected
+        but the logout RPC didn't finish wiping the session before reconnect.
+        Force-wipe the auth dir so the next connect demands a fresh QR
+        instead of silently restoring the stale session.
+        """
+        import shutil
+        cred_path = Path(ConfigStore.project_root) / ".credentials" / "whatsapp_web.json"
+        auth_path = Path(self._auth_dir)
+        if cred_path.exists():
+            return  # User is still connected; LocalAuth is legitimate.
+        if not auth_path.exists():
+            return  # Already clean.
+        try:
+            shutil.rmtree(auth_path, ignore_errors=True)
+            logger.info(
+                "[WA-Bridge] wiped orphan LocalAuth — credential was removed "
+                "but session data remained; forcing fresh QR on this connect"
+            )
+        except Exception as e:
+            logger.warning(f"[WA-Bridge] could not wipe orphan LocalAuth: {e}")
+
     async def start(self) -> None:
         if self.is_running:
             return
 
-        auth_dir = Path(self._auth_dir)
-        if os.name == "nt":
-            try:
-                result = subprocess.run(
-                    ["wmic", "process", "where",
-                     f"commandline like '%{auth_dir.name}%' and name='chrome.exe'",
-                     "get", "processid"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                for line in result.stdout.strip().split("\n")[1:]:
-                    pid = line.strip()
-                    if pid.isdigit():
-                        subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True, timeout=5)
-            except Exception:
-                pass
-        lock_file = auth_dir / "session" / "SingletonLock"
-        if lock_file.exists():
-            try:
-                lock_file.unlink(missing_ok=True)
-            except Exception:
-                pass
+        self._clear_stale_session_locks()
+        self._wipe_orphan_localauth_if_disconnected()
 
         node_modules = BRIDGE_DIR / "node_modules"
         if not node_modules.exists():
@@ -118,19 +204,54 @@ class WhatsAppBridge:
         self._stderr_task = asyncio.create_task(self._read_stderr())
 
     async def stop(self) -> None:
+        await self._teardown(cmd="shutdown")
+
+    async def logout(self) -> None:
+        """Full disconnect — fire-and-forget, with a tight timeout.
+
+        wwebjs's ``client.logout()`` can hang for 30+ seconds on a stuck
+        session because it tries to flush the WhatsApp server-side
+        invalidation through a half-broken connection. Waiting for that
+        gives terrible UX (user clicks Disconnect → 2 minutes of silence).
+
+        Trade-off: we give Node ~3s to start the server-side logout, then
+        force-kill the process and wipe LocalAuth ourselves. The user's
+        local state (no cred, no auth dir) is the source-of-truth for
+        "disconnected"; WhatsApp will eventually expire the server session
+        on its own. Net effect: disconnect feels instant, fresh QR every
+        reconnect.
+        """
+        await self._teardown(cmd="logout", send_timeout=3.0, wait_timeout=3.0)
+        from pathlib import Path
+        import shutil
+        try:
+            shutil.rmtree(Path(self._auth_dir), ignore_errors=True)
+        except Exception as e:
+            logger.warning(f"[WA-Bridge] could not remove auth dir: {e}")
+
+    async def _teardown(
+        self,
+        cmd: str = "shutdown",
+        send_timeout: float = 10.0,
+        wait_timeout: float = 20.0,
+    ) -> None:
+        """Send ``cmd`` to the bridge, wait for the Node process to exit,
+        and clean up reader tasks. Used by both ``stop`` and ``logout``.
+        Tighter timeouts give logout a snappy UX; ``stop`` keeps the
+        original generous timeouts for graceful agent-shutdown paths."""
         if not self.is_running:
             return
         self._running = False
         self._ready = False
 
         try:
-            await self.send_command("shutdown", timeout=10.0)
+            await self.send_command(cmd, timeout=send_timeout)
         except Exception:
             pass
 
         if self._process:
             try:
-                await asyncio.wait_for(self._process.wait(), timeout=20.0)
+                await asyncio.wait_for(self._process.wait(), timeout=wait_timeout)
             except asyncio.TimeoutError:
                 if os.name == "nt":
                     try:

@@ -56,8 +56,25 @@ log(`Auth directory: ${AUTH_DIR}`);
 // WhatsApp Client
 // ---------------------------------------------------------------------------
 
+// Pinning the WhatsApp Web client version via webVersionCache.
+//
+// Without this, whatsapp-web.js uses whatever WA Web JS WhatsApp serves
+// at the moment, which frequently breaks wwebjs's selectors and leaves
+// the ``ready`` event never firing after authentication. Pinning to a
+// known-working version (curated by the wppconnect-team) avoids that.
+//
+// If this version eventually stops working, pick a newer one from
+//   https://github.com/wppconnect-team/wa-version/tree/main/html
+// and update the ``remotePath`` URL below.
+const WA_WEB_VERSION = "2.3000.1023223821";
+
 const client = new Client({
   authStrategy: new LocalAuth({ dataPath: AUTH_DIR }),
+  webVersionCache: {
+    type: "remote",
+    remotePath:
+      `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WA_WEB_VERSION}.html`,
+  },
   puppeteer: {
     headless: true,
     protocolTimeout: 120000,
@@ -404,6 +421,26 @@ async function handleCommand(line) {
         log("Shutdown requested");
         emitResponse(id, { success: true });
         await gracefulShutdown();
+        break;
+      }
+
+      case "logout": {
+        // Full disconnect: logs out of WhatsApp server-side AND wipes the
+        // LocalAuth data on disk, so the next connect demands a fresh QR.
+        // Without this, ``client.destroy()`` alone leaves the session
+        // restorable and the bridge auto-reconnects on next start.
+        log("Logout requested");
+        emitResponse(id, { success: true });
+        try {
+          if (client) await client.logout();
+          log("Logged out");
+        } catch (err) {
+          log(`Logout error: ${err.message}`);
+          // Fall through to destroy/exit — even a partial logout is
+          // better than leaving the bridge running.
+          try { if (client) await client.destroy(); } catch (_) {}
+        }
+        process.exit(0);
         break;
       }
 

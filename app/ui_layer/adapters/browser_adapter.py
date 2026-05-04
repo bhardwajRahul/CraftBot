@@ -4406,29 +4406,38 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_integration_disconnect(
         self, integration_id: str, account_id: Optional[str] = None
     ) -> None:
-        """Disconnect an integration account."""
-        try:
-            success, message = await disconnect_integration(integration_id, account_id)
-            await self._broadcast({
-                "type": "integration_disconnect_result",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "id": integration_id,
-                },
-            })
-            # Refresh the list on success
-            if success:
-                await self._handle_integration_list()
-        except Exception as e:
-            await self._broadcast({
-                "type": "integration_disconnect_result",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "id": integration_id,
-                },
-            })
+        """Disconnect an integration account.
+
+        Heavy teardown (e.g. WhatsApp bridge ``client.destroy()``) can take
+        20+ seconds. We don't want the WS message handler blocked on it —
+        the frontend would show stale "connected" state until the teardown
+        finishes. So we run the disconnect in a background task and let
+        this handler return immediately.
+        """
+        async def _do_disconnect() -> None:
+            try:
+                success, message = await disconnect_integration(integration_id, account_id)
+                await self._broadcast({
+                    "type": "integration_disconnect_result",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "id": integration_id,
+                    },
+                })
+                if success:
+                    await self._handle_integration_list()
+            except Exception as e:
+                await self._broadcast({
+                    "type": "integration_disconnect_result",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "id": integration_id,
+                    },
+                })
+
+        asyncio.create_task(_do_disconnect())
 
     # =====================
     # Jira Settings

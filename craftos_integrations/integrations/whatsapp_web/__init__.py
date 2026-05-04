@@ -139,8 +139,23 @@ class WhatsAppWebHandler(IntegrationHandler):
         try:
             from ._bridge_client import get_whatsapp_bridge
             bridge = get_whatsapp_bridge()
+            # ``logout()`` (not ``stop()``) — calls wwebjs's ``client.logout()``
+            # which invalidates the session server-side and wipes the LocalAuth
+            # data on disk. Without this, the next connect would silently
+            # auto-restore the session and skip the QR scan, which makes the
+            # disconnect ineffectual from the user's point of view.
             if bridge.is_running:
-                await bridge.stop()
+                await bridge.logout()
+            else:
+                # Bridge isn't running but LocalAuth data may still exist
+                # from a previous session — wipe it directly.
+                import shutil
+                from pathlib import Path
+                from ...config import ConfigStore
+                shutil.rmtree(
+                    Path(ConfigStore.project_root) / ".credentials" / "whatsapp_wwebjs_auth",
+                    ignore_errors=True,
+                )
             from ...manager import get_external_comms_manager
             manager = get_external_comms_manager()
             if manager:

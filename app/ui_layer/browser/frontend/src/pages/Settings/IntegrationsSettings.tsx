@@ -173,6 +173,15 @@ export function IntegrationsSettings() {
   const [showManageModal, setShowManageModal] = useState(false)
   const [managingIntegration, setManagingIntegration] = useState<Integration | null>(null)
 
+  // Slow operation overlay — shown during long disconnects (WhatsApp Web's
+  // bridge teardown can take 20–30 seconds; without this the user has no
+  // feedback until the backend confirms). Cleared by integration_disconnect_result.
+  const [pendingOp, setPendingOp] = useState<{
+    kind: 'disconnect'
+    id: string
+    label: string
+  } | null>(null)
+
   // WhatsApp QR code state
   const [whatsappQrCode, setWhatsappQrCode] = useState<string | null>(null)
   const [whatsappSessionId, setWhatsappSessionId] = useState<string | null>(null)
@@ -218,7 +227,10 @@ export function IntegrationsSettings() {
         }
       }),
       onMessage('integration_disconnect_result', (data: unknown) => {
-        const d = data as { success: boolean; message?: string; error?: string }
+        const d = data as { success: boolean; message?: string; error?: string; id?: string }
+        // Clear the slow-disconnect overlay if this result is for the
+        // operation it was tracking.
+        setPendingOp(prev => (prev && d.id && prev.id === d.id) ? null : prev)
         if (d.success) {
           showToast('success', d.message || 'Disconnected successfully')
           setShowManageModal(false)
@@ -375,10 +387,38 @@ export function IntegrationsSettings() {
     send('integration_connect_interactive', { id: selectedIntegration.id })
   }
 
+  // Slow integrations show a "working…" overlay during disconnect so the
+  // user gets visible feedback during the bridge teardown (which can take
+  // 20–30 seconds for WhatsApp Web). Add other slow integrations here.
+  const SLOW_DISCONNECT_IDS = new Set(['whatsapp_web'])
+
   const handleDisconnect = (accountId?: string) => {
     if (!managingIntegration) return
+    const targetId = managingIntegration.id
+    const targetName = managingIntegration.name
+
+    // Optimistic UI update — mark this integration as disconnected immediately
+    // so the user gets instant feedback in the integrations list. Some
+    // integrations (WhatsApp Web) take 20+ seconds to tear down their bridge
+    // cleanly, and the ``integration_list`` broadcast only fires after that
+    // completes. The backend's authoritative ``integration_list`` will
+    // overwrite this when it arrives. If the disconnect fails,
+    // ``integration_disconnect_result`` shows a toast and the next refresh
+    // restores the real state.
+    setIntegrations(prev => prev.map(i =>
+      i.id === targetId ? { ...i, connected: false, accounts: [] } : i
+    ))
+    setConnectedCount(prev => Math.max(0, prev - 1))
+    setShowManageModal(false)
+    setManagingIntegration(null)
+
+    // Slow disconnects: show a blocking overlay until the result arrives.
+    if (SLOW_DISCONNECT_IDS.has(targetId)) {
+      setPendingOp({ kind: 'disconnect', id: targetId, label: targetName })
+    }
+
     send('integration_disconnect', {
-      id: managingIntegration.id,
+      id: targetId,
       account_id: accountId,
     })
   }
@@ -814,6 +854,24 @@ export function IntegrationsSettings() {
       )}
 
       {/* Confirm Modal */}
+      {/* Slow-disconnect overlay — shown until the backend confirms via
+          ``integration_disconnect_result``. */}
+      {pendingOp && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent} style={{ minWidth: 320, maxWidth: 400 }}>
+            <div className={styles.whatsappLoading}>
+              <Loader2 size={48} className={styles.spinning} />
+              <p style={{ marginTop: 16, fontWeight: 500 }}>
+                {pendingOp.kind === 'disconnect' ? `Disconnecting ${pendingOp.label}…` : `Connecting ${pendingOp.label}…`}
+              </p>
+              <p style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+                This can take up to 30 seconds.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmModal {...confirmModalProps} />
     </div>
   )
