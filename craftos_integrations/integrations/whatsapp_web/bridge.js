@@ -56,25 +56,20 @@ log(`Auth directory: ${AUTH_DIR}`);
 // WhatsApp Client
 // ---------------------------------------------------------------------------
 
-// Pinning the WhatsApp Web client version via webVersionCache.
+// We deliberately do NOT pin a webVersionCache. Pinning ties us to a
+// snapshot from wppconnect-team/wa-version, which (a) prunes old entries
+// after a few months → 404 → ``Runtime.callFunctionOn timed out`` during
+// init, and (b) drifts away from whatever wwebjs's internal selectors
+// actually expect → ``authenticated`` fires but ``ready`` never does, so
+// the synthetic-ready fallback kicks in but messages don't actually flow
+// because wwebjs's internal listeners haven't attached.
 //
-// Without this, whatsapp-web.js uses whatever WA Web JS WhatsApp serves
-// at the moment, which frequently breaks wwebjs's selectors and leaves
-// the ``ready`` event never firing after authentication. Pinning to a
-// known-working version (curated by the wppconnect-team) avoids that.
-//
-// IMPORTANT: wppconnect-team prunes old snapshots from their repo. If the
-// pinned version returns 404, ``Runtime.callFunctionOn timed out`` fires
-// during initialize because wwebjs has no HTML to inject. Symptom: bridge
-// hangs for ~2 minutes, never reaches ``authenticated``, never reaches
-// ``ready``.
-//
-// Currently the wppconnect-team only retains bleeding-edge alpha builds
-// (no "stable" tag), so we pin to the most recent alpha known to work
-// against the installed whatsapp-web.js (1.34.6). Bump to a newer alpha
-// from https://github.com/wppconnect-team/wa-version/tree/main/html when
-// the page-load hang reappears.
-const WA_WEB_VERSION = "2.3000.1038802702-alpha";
+// Without webVersionCache, wwebjs loads web.whatsapp.com directly, using
+// the same JS that the user's actual browser uses. That tracks WhatsApp's
+// current build and matches wwebjs's selectors most reliably. If a future
+// WhatsApp update breaks wwebjs's selectors, the fix is to bump the
+// ``whatsapp-web.js`` package version, not to re-introduce a pinned HTML
+// that will go stale a few months later.
 
 // ``client`` is module-level + ``let`` (not ``const``) so the watchdog/retry
 // path can replace it with a fresh instance after a stuck-init recovery.
@@ -85,11 +80,6 @@ let client;
 function buildClient() {
   return new Client({
     authStrategy: new LocalAuth({ dataPath: AUTH_DIR }),
-    webVersionCache: {
-      type: "remote",
-      remotePath:
-        `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WA_WEB_VERSION}.html`,
-    },
     puppeteer: {
       headless: true,
       protocolTimeout: 120000,
@@ -139,14 +129,29 @@ c.on("authenticated", () => {
   if (initWatchdog) { clearTimeout(initWatchdog); initWatchdog = null; }
   emitEvent("authenticated");
 
-  // Fallback: wwebjs occasionally stalls between "authenticated" and "ready"
-  // (especially on session restore). Give the real "ready" handler 60s to
-  // fire; if it doesn't, synthesize a "ready" event from client.info so the
-  // Python bridge gets unblocked. Sends/receives work fine without the
-  // chat-catchup step.
+  // Ready-watchdog: when wwebjs's selectors drift from what WhatsApp's
+  // current bundle exposes, ``authenticated`` fires but ``ready`` never
+  // does — and crucially wwebjs's internal message listeners don't attach,
+  // so messages don't flow. We wait 60s for the real ``ready``; if it
+  // doesn't arrive, we treat it as a stuck-init failure and reuse the
+  // existing watchdog/retry path (destroy → rebuild → reinitialize).
+  // Only after the retry budget is exhausted do we fall through to a
+  // synthetic ``ready`` so sends still work — receive will be broken in
+  // that fallback state, but the bridge is at least usable for outbound.
   setTimeout(async () => {
     if (isReady) return;
-    log("ready event not received within 60s of authenticated — synthesizing");
+    if (initAttempt <= MAX_INIT_RETRIES) {
+      log(`'ready' not received within 60s of authenticated — treating as stuck init, retrying (attempt ${initAttempt}/${MAX_INIT_RETRIES + 1})`);
+      initAttempt += 1;
+      try { await client.destroy(); } catch (err) { log(`destroy during ready-retry: ${err.message}`); }
+      client = buildClient();
+      attachHandlers(client);
+      authedThisAttempt = false;
+      startClientWithWatchdog();
+      return;
+    }
+    // Retry budget exhausted — fall through to synthetic so sends still work.
+    log("'ready' not received and retries exhausted — synthesizing (sends only, receive will not work)");
     try {
       if (client.info && client.info.wid) {
         ownerPhone = client.info.wid.user || ownerPhone;
@@ -161,6 +166,7 @@ c.on("authenticated", () => {
       wid: client.info?.wid?._serialized || "",
       synthetic: true,
     });
+    emitEvent("error", { message: "ready event never fired — message receive will not work. Try restarting the agent or updating whatsapp-web.js.", fatal: false });
   }, 60_000);
 });
 

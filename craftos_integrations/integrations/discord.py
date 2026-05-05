@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote as _url_quote
@@ -17,6 +18,7 @@ from .. import (
     IntegrationSpec,
     PlatformMessage,
     has_credential,
+    load_config,
     load_credential,
     register_client,
     register_handler,
@@ -37,6 +39,52 @@ GATEWAY_INTENTS = (1 << 9) | (1 << 12) | (1 << 15)  # 37376
 class DiscordCredential:
     bot_token: str = ""
     user_token: str = ""
+    bot_id: str = ""
+    bot_username: str = ""
+
+
+@dataclass
+class DiscordConfig:
+    """Runtime knobs persisted to ``discord_config.json``.
+
+    Two-tier permission model:
+
+    * **Third-party** lists — users/roles whose messages reach the agent as
+      incoming external chatter (``raw.is_self_message = False``). Use for
+      letting a server's general members @-the-bot for help.
+    * **Self** lists — users/roles whose messages reach the agent as if the
+      bot owner sent them (``raw.is_self_message = True``). Use for trusted
+      admins who can drive the bot like its owner — issue commands, change
+      settings, etc.
+
+    Filter behaviour:
+
+    * If ``mention_only`` is set, the bot must be @-mentioned regardless of
+      the lists below.
+    * Self matches always win over third-party matches.
+    * If **all four** allow lists are empty, the filter is fully open and
+      every message is classified as third-party (current default).
+    * If any list has entries, users matching neither list are dropped.
+    """
+    # When True, the bot only forwards messages where it was @-mentioned.
+    # Default False = the bot processes every message it can see in any
+    # channel/guild it's a member of.
+    mention_only: bool = False
+
+    # ----- Third-party allowlist (forwarded as external messages) -----
+    # Comma-separated Discord usernames / display names. Matched
+    # case-insensitively against both ``author.username`` and
+    # ``author.global_name``. Empty = skip this sub-check.
+    third_party_usernames: List[str] = field(default_factory=list)
+    # Comma-separated guild role names. Resolved against the guild's role
+    # list (cached 10 min per guild). Empty = skip this sub-check.
+    # No effect on DMs (no guild context).
+    third_party_role_names: List[str] = field(default_factory=list)
+
+    # ----- Self allowlist (forwarded as if the bot owner sent them) -----
+    # Same matching semantics as the third-party fields above.
+    self_usernames: List[str] = field(default_factory=list)
+    self_role_names: List[str] = field(default_factory=list)
 
 
 DISCORD = IntegrationSpec(
@@ -45,6 +93,12 @@ DISCORD = IntegrationSpec(
     cred_file="discord.json",
     platform_id="discord",
 )
+
+
+def _discord_config_file() -> str:
+    """``discord.json`` → ``discord_config.json``."""
+    stem = DISCORD.cred_file
+    return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -69,6 +123,32 @@ class DiscordHandler(IntegrationHandler):
         {"key": "bot_token", "label": "Bot Token", "placeholder": "Enter bot token", "password": True},
     ]
 
+    config_class = DiscordConfig
+    config_fields = [
+        {"key": "mention_only", "label": "Only when @-mentioned", "type": "checkbox",
+         "help": "When on, the bot only forwards messages where it's directly @-mentioned. "
+                 "When off, every message in every channel the bot can see is considered."},
+        {"key": "third_party_usernames", "label": "Third-party users", "type": "list",
+         "placeholder": "alice, bob.s",
+         "help": "Their messages reach the agent as external incoming messages. "
+                 "Comma-separated Discord usernames/display names, case-insensitive. "
+                 "Leave empty to skip this sub-check."},
+        {"key": "third_party_role_names", "label": "Third-party roles", "type": "list",
+         "placeholder": "Member, Contributor",
+         "help": "Same as Third-party users, but matched on Discord role names in the "
+                 "message's guild. DMs ignore this list. Leave empty to skip."},
+        {"key": "self_usernames", "label": "Self users", "type": "list",
+         "placeholder": "ahmad",
+         "help": "Their messages are treated as if you (the bot owner) sent them — used "
+                 "for trusted admins who can drive the bot like its owner. Self matches "
+                 "win over third-party matches. Leave empty to skip."},
+        {"key": "self_role_names", "label": "Self roles", "type": "list",
+         "placeholder": "Admin, Owner",
+         "help": "Same as Self users, but matched on role names. DMs ignore this list. "
+                 "Leave empty to skip. Note: if all four allow lists are empty, the filter "
+                 "is fully open and every message is treated as third-party (default)."},
+    ]
+
     @property
     def subcommands(self) -> List[str]:
         return ["login", "logout", "status"]
@@ -89,7 +169,11 @@ class DiscordHandler(IntegrationHandler):
         except Exception as e:
             return False, f"Discord connection error: {e}"
 
-        save_credential(self.spec.cred_file, DiscordCredential(bot_token=bot_token))
+        save_credential(self.spec.cred_file, DiscordCredential(
+            bot_token=bot_token,
+            bot_id=str(data.get("id") or ""),
+            bot_username=data.get("username") or "",
+        ))
         return True, f"Discord bot connected: {data.get('username')} ({data.get('id')})"
 
     async def logout(self, args: List[str]) -> Tuple[bool, str]:
@@ -111,7 +195,12 @@ class DiscordHandler(IntegrationHandler):
         cred = load_credential(self.spec.cred_file, DiscordCredential)
         if not cred or not cred.bot_token:
             return True, "Discord: Not connected"
-        return True, "Discord: Connected (bot token)"
+        # Emit a parseable account row so the Manage modal's "Connected
+        # Accounts" section populates. Falls back to the literal "bot" if
+        # we don't have the cached username/id (older creds pre-migration).
+        name = cred.bot_username or "Discord bot"
+        ident = cred.bot_id or "bot"
+        return True, f"Discord: Connected\n  - {name} ({ident})"
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -136,6 +225,10 @@ class DiscordClient(BasePlatformClient):
         self._catchup_done: bool = False
         # Lazy voice manager — created/started on first voice call, reused after
         self._voice_mgr: Optional[Any] = None
+        # Per-guild role-name cache: guild_id -> ({role_id: lower_name}, expires_at).
+        # Refreshed on miss / 10-minute expiry so role renames or new roles
+        # propagate without an agent restart.
+        self._role_name_cache: Dict[str, Tuple[Dict[str, str], float]] = {}
 
     def has_credentials(self) -> bool:
         return has_credential(self.spec.cred_file)
@@ -299,6 +392,58 @@ class DiscordClient(BasePlatformClient):
         if not content or not self._catchup_done:
             return
 
+        # ----- Filter + classify -----
+        # Two-stage:
+        #   1. mention_only — drop if bot wasn't @-mentioned (when enabled)
+        #   2. allowlists — try self first; if matched, classify as
+        #      ``is_self_message=True``. Else try third-party. If neither
+        #      list matches AND any list is configured, drop. If all four
+        #      lists are empty, the filter is fully open (current default).
+        cfg = load_config(_discord_config_file(), DiscordConfig) or DiscordConfig()
+
+        if cfg.mention_only:
+            mentions = d.get("mentions") or []
+            mentioned_ids = {str(m.get("id")) for m in mentions if isinstance(m, dict)}
+            if self._bot_user_id and self._bot_user_id not in mentioned_ids:
+                return
+
+        guild_id = d.get("guild_id")
+        member = d.get("member") or {}
+        role_ids = [str(r) for r in (member.get("roles") or [])]
+        author_username_candidates = {
+            (author.get("username") or "").lower(),
+            (author.get("global_name") or "").lower(),
+        }
+        # Resolve role names lazily — only fetch if any role list is set.
+        # Cached 10 min per guild, async helper takes a thread off the event loop.
+        user_role_names: set = set()
+        any_role_list = (cfg.self_role_names or cfg.third_party_role_names)
+        if any_role_list and guild_id and role_ids:
+            role_map = await self._resolve_guild_role_names(str(guild_id))
+            user_role_names = {role_map.get(rid, "") for rid in role_ids if role_map.get(rid)}
+
+        def _matches(usernames: list, role_names: list) -> bool:
+            uns = {u.lower().strip() for u in (usernames or []) if u.strip()}
+            rns = {r.lower().strip() for r in (role_names or []) if r.strip()}
+            if uns and any(c and c in uns for c in author_username_candidates):
+                return True
+            if rns and user_role_names and (rns & user_role_names):
+                return True
+            return False
+
+        any_self = bool(cfg.self_usernames or cfg.self_role_names)
+        any_tp = bool(cfg.third_party_usernames or cfg.third_party_role_names)
+
+        is_self_message = False
+        if any_self and _matches(cfg.self_usernames, cfg.self_role_names):
+            is_self_message = True
+        elif any_tp and _matches(cfg.third_party_usernames, cfg.third_party_role_names):
+            is_self_message = False
+        elif any_self or any_tp:
+            # At least one list configured but the user matched none → drop.
+            return
+        # else: all four lists empty → fall through, classify as third-party.
+
         author_name = author.get("username", "Unknown")
         channel_id = d.get("channel_id", "")
         guild_id = d.get("guild_id", "")
@@ -320,7 +465,7 @@ class DiscordClient(BasePlatformClient):
                 channel_name=channel_name,
                 message_id=d.get("id", ""),
                 timestamp=ts,
-                raw={"guild_id": guild_id, "is_self_message": False},
+                raw={"guild_id": guild_id, "is_self_message": is_self_message},
             ))
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
@@ -356,6 +501,36 @@ class DiscordClient(BasePlatformClient):
                 "categories": [c for c in channels if c.get("type") == 4],
             },
         )
+
+    def get_guild_roles(self, guild_id: str) -> Result:
+        return http_request(
+            "GET", f"{DISCORD_API_BASE}/guilds/{guild_id}/roles",
+            headers=self._bot_headers(), expected=(200,),
+            transform=lambda roles: {"roles": roles},
+        )
+
+    async def _resolve_guild_role_names(self, guild_id: str) -> Dict[str, str]:
+        """Return ``{role_id: lower-cased role_name}`` for ``guild_id``, cached 10 min.
+
+        Used by the listener's role-name allowlist filter. Falls back to an
+        empty mapping on REST failure so a transient API blip doesn't lock
+        the agent out of its own messages — the role check is bypassed in
+        that case (handled by the caller).
+        """
+        now = time.time()
+        cached = self._role_name_cache.get(guild_id)
+        if cached and cached[1] > now:
+            return cached[0]
+        try:
+            result = await asyncio.to_thread(self.get_guild_roles, guild_id)
+            roles = result.get("result", {}).get("roles", []) if "error" not in result else []
+            mapping = {str(r.get("id")): (r.get("name") or "").lower()
+                       for r in roles if isinstance(r, dict)}
+        except Exception as e:
+            logger.debug(f"[DISCORD] role lookup for {guild_id} failed: {e}")
+            mapping = {}
+        self._role_name_cache[guild_id] = (mapping, now + 600.0)
+        return mapping
 
     def get_channel(self, channel_id: str) -> Result:
         return http_request(

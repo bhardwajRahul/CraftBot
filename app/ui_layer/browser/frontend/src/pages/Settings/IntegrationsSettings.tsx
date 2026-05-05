@@ -250,7 +250,11 @@ const ConfigForm = ({
         )
 
       case 'list': {
-        // Comma-separated <input>. Backend coerces "a, b, c" → ["a","b","c"].
+        // Comma-separated <input>. The backend coerces "a, b, c" → ["a","b","c"]
+        // on save (see service.py:_coerce). Crucially, we keep the raw string
+        // in state while the user is typing — converting to an array on every
+        // keystroke would strip trailing commas/spaces and stop the user from
+        // typing a second item.
         const display = Array.isArray(cur) ? cur.join(', ') : (cur ?? '')
         return (
           <input
@@ -259,7 +263,7 @@ const ConfigForm = ({
             className={styles.input}
             placeholder={field.placeholder}
             value={display}
-            onChange={e => setField(field.key, e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
+            onChange={e => setField(field.key, e.target.value)}
           />
         )
       }
