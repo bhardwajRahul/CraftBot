@@ -58,6 +58,13 @@ class DiscordHandler(IntegrationHandler):
     description = "Community chat"
     auth_type = "token"
     icon = "discord"
+    connect_help = [
+        "Open Discord Developer Portal: discord.com/developers/applications",
+        "Click 'New Application' and give it a name",
+        "Open the 'Bot' tab in the left sidebar",
+        "Click 'Reset Token' (or 'Copy' if it's already shown)",
+        "Paste the bot token into the field below",
+    ]
     fields = [
         {"key": "bot_token", "label": "Bot Token", "placeholder": "Enter bot token", "password": True},
     ]

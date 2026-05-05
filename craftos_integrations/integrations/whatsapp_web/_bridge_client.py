@@ -85,6 +85,13 @@ class WhatsAppBridge:
         """
         auth_dir = Path(self._auth_dir).resolve()
         session_dir = auth_dir / "session"
+        # Substring used to match the auth dir anywhere in a Chromium
+        # process's command line. We deliberately avoid ``Path.resolve()``
+        # equality on Windows because puppeteer launches some children
+        # with the path quoted, some unquoted, some with a trailing
+        # backslash, and ``Path.resolve()`` does not always round-trip
+        # — every miss leaks another zombie tree.
+        auth_dir_marker = str(auth_dir).lower()
 
         # 1. Kill orphan Chromium processes pinned to our auth dir
         killed = 0
@@ -96,16 +103,13 @@ class WhatsAppBridge:
                     if name not in ("chrome.exe", "chrome", "chromium", "chromium.exe"):
                         continue
                     cmdline = proc.info.get("cmdline") or []
-                    user_data_dir = None
-                    for arg in cmdline:
-                        if isinstance(arg, str) and arg.startswith("--user-data-dir="):
-                            user_data_dir = arg.split("=", 1)[1].strip('"').strip("'")
-                            break
-                    if not user_data_dir:
+                    if not cmdline:
                         continue
-                    if Path(user_data_dir).resolve() == session_dir:
-                        proc.kill()
-                        killed += 1
+                    joined = " ".join(a for a in cmdline if isinstance(a, str)).lower()
+                    if auth_dir_marker not in joined:
+                        continue
+                    proc.kill()
+                    killed += 1
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     continue
         except ImportError:

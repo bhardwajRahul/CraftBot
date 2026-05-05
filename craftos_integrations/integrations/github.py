@@ -82,6 +82,12 @@ class GitHubHandler(IntegrationHandler):
     description = "Repositories, issues, and pull requests"
     auth_type = "token"
     icon = "github"
+    connect_help = [
+        "Open GitHub: github.com/settings/tokens",
+        "Click 'Generate new token' → 'Generate new token (classic)'",
+        "Set scopes: at minimum 'repo' (issues + PRs) — add 'workflow' if needed",
+        "Copy the ghp_... token before leaving the page (shown once)",
+    ]
     fields = [
         {"key": "access_token", "label": "Personal Access Token", "placeholder": "ghp_...", "password": True},
     ]

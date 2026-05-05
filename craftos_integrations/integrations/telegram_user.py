@@ -77,6 +77,14 @@ class TelegramUserHandler(IntegrationHandler):
     description = "MTProto user account"
     auth_type = "interactive"
     icon = "telegram"
+    connect_help = [
+        "Open my.telegram.org and log in with your Telegram phone number",
+        "Click 'API development tools'",
+        "Fill the form (any app name/short name works) and submit",
+        "Copy the 'api_id' (number) and 'api_hash' (long hex string)",
+        "Set them as TELEGRAM_API_ID and TELEGRAM_API_HASH in CraftBot config",
+        "Then click Connect — you'll be prompted for your phone + login code",
+    ]
     fields: List = []
 
     config_class = TelegramUserConfig

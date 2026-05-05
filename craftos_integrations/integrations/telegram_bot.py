@@ -107,6 +107,12 @@ class TelegramBotHandler(IntegrationHandler):
     description = "Bot API messaging"
     auth_type = "token"
     icon = "telegram"
+    connect_help = [
+        "Open Telegram and search for @BotFather",
+        "Send /newbot and follow the prompts (pick a name, pick a username ending in 'bot')",
+        "BotFather replies with a token — copy the long string (numbers:letters)",
+        "Paste it as the Bot Token below",
+    ]
     fields = [
         {"key": "bot_token", "label": "Bot Token", "placeholder": "From @BotFather", "password": True},
     ]

@@ -114,6 +114,14 @@ class TwitterHandler(IntegrationHandler):
     description = "Tweets, mentions, and timeline"
     auth_type = "token"
     icon = "twitter"
+    connect_help = [
+        "Open developer.twitter.com/en/portal/dashboard",
+        "Sign up for a developer account if you haven't (free tier works for posting)",
+        "Create a Project, then a Standalone App inside it",
+        "App settings → User authentication settings → enable OAuth 1.0a with Read+Write",
+        "Keys and tokens tab → copy Consumer Key + Consumer Secret",
+        "Scroll down → Generate Access Token + Secret → copy both",
+    ]
     fields = [
         {"key": "api_key", "label": "Consumer Key", "placeholder": "Enter Consumer key", "password": True},
         {"key": "api_secret", "label": "Consumer Secret", "placeholder": "Enter Consumer secret", "password": True},

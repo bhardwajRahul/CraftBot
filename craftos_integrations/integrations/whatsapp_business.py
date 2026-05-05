@@ -51,6 +51,13 @@ class WhatsAppBusinessHandler(IntegrationHandler):
     description = "WhatsApp Cloud API"
     auth_type = "token"
     icon = "whatsapp_business"
+    connect_help = [
+        "Open developers.facebook.com/apps and create an app (Business type)",
+        "Add the 'WhatsApp' product to the app",
+        "WhatsApp → API Setup tab — copy the temporary access token (or generate a permanent one in System Users)",
+        "Same page — copy the Phone Number ID under 'From' phone number",
+        "Add a recipient phone number for testing on the same page",
+    ]
     fields = [
         {"key": "access_token", "label": "Access Token", "placeholder": "Enter access token", "password": True},
         {"key": "phone_number_id", "label": "Phone Number ID", "placeholder": "Enter phone number ID", "password": False},

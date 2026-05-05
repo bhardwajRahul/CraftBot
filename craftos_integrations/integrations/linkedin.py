@@ -63,6 +63,12 @@ class LinkedInHandler(IntegrationHandler):
     description = "Professional network"
     auth_type = "oauth"
     icon = "linkedin"
+    connect_help = [
+        "Click 'Sign in with LinkedIn' below",
+        "A browser tab will open at linkedin.com/oauth — sign in with your LinkedIn account",
+        "Approve the requested permissions (read profile, post on behalf, etc.)",
+        "You'll be redirected back to CraftBot once consent completes",
+    ]
     fields: List = []
 
     oauth = OAuthFlow(

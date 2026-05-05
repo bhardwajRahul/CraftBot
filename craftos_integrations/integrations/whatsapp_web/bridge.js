@@ -63,31 +63,47 @@ log(`Auth directory: ${AUTH_DIR}`);
 // the ``ready`` event never firing after authentication. Pinning to a
 // known-working version (curated by the wppconnect-team) avoids that.
 //
-// If this version eventually stops working, pick a newer one from
-//   https://github.com/wppconnect-team/wa-version/tree/main/html
-// and update the ``remotePath`` URL below.
-const WA_WEB_VERSION = "2.3000.1023223821";
+// IMPORTANT: wppconnect-team prunes old snapshots from their repo. If the
+// pinned version returns 404, ``Runtime.callFunctionOn timed out`` fires
+// during initialize because wwebjs has no HTML to inject. Symptom: bridge
+// hangs for ~2 minutes, never reaches ``authenticated``, never reaches
+// ``ready``.
+//
+// Currently the wppconnect-team only retains bleeding-edge alpha builds
+// (no "stable" tag), so we pin to the most recent alpha known to work
+// against the installed whatsapp-web.js (1.34.6). Bump to a newer alpha
+// from https://github.com/wppconnect-team/wa-version/tree/main/html when
+// the page-load hang reappears.
+const WA_WEB_VERSION = "2.3000.1038802702-alpha";
 
-const client = new Client({
-  authStrategy: new LocalAuth({ dataPath: AUTH_DIR }),
-  webVersionCache: {
-    type: "remote",
-    remotePath:
-      `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WA_WEB_VERSION}.html`,
-  },
-  puppeteer: {
-    headless: true,
-    protocolTimeout: 120000,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-extensions",
-      "--disable-background-timer-throttling",
-    ],
-  },
-});
+// ``client`` is module-level + ``let`` (not ``const``) so the watchdog/retry
+// path can replace it with a fresh instance after a stuck-init recovery.
+// Command handlers below reference ``client`` lazily — they always pick up
+// the current binding.
+let client;
+
+function buildClient() {
+  return new Client({
+    authStrategy: new LocalAuth({ dataPath: AUTH_DIR }),
+    webVersionCache: {
+      type: "remote",
+      remotePath:
+        `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${WA_WEB_VERSION}.html`,
+    },
+    puppeteer: {
+      headless: true,
+      protocolTimeout: 120000,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-extensions",
+        "--disable-background-timer-throttling",
+      ],
+    },
+  });
+}
 
 // Track message IDs sent by us so we can skip them in message_create
 const ownSentIds = new Set();
@@ -102,7 +118,12 @@ let selfChatId = "";
 // Client Events
 // ---------------------------------------------------------------------------
 
-client.on("qr", async (qr) => {
+// Attach all wwebjs event handlers to ``c``. Called once per buildClient() —
+// the watchdog/retry path re-runs this against the freshly built client so
+// every retry has the same wiring.
+function attachHandlers(c) {
+
+c.on("qr", async (qr) => {
   log("QR code received");
   try {
     const dataUrl = await qrcode.toDataURL(qr);
@@ -112,8 +133,10 @@ client.on("qr", async (qr) => {
   }
 });
 
-client.on("authenticated", () => {
+c.on("authenticated", () => {
   log("Authenticated");
+  authedThisAttempt = true;
+  if (initWatchdog) { clearTimeout(initWatchdog); initWatchdog = null; }
   emitEvent("authenticated");
 
   // Fallback: wwebjs occasionally stalls between "authenticated" and "ready"
@@ -141,12 +164,12 @@ client.on("authenticated", () => {
   }, 60_000);
 });
 
-client.on("auth_failure", (msg) => {
+c.on("auth_failure", (msg) => {
   log(`Auth failure: ${msg}`);
   emitEvent("auth_failure", { message: String(msg) });
 });
 
-client.on("ready", async () => {
+c.on("ready", async () => {
   isReady = true;
   readyTimestamp = Math.floor(Date.now() / 1000);
   log("Client ready");
@@ -202,7 +225,7 @@ client.on("ready", async () => {
   }
 });
 
-client.on("disconnected", (reason) => {
+c.on("disconnected", (reason) => {
   isReady = false;
   catchupDone = false;
   readyTimestamp = 0;
@@ -214,7 +237,7 @@ client.on("disconnected", (reason) => {
 // Message Events
 // ---------------------------------------------------------------------------
 
-client.on("message", async (msg) => {
+c.on("message", async (msg) => {
   // Skip messages from before the bridge was ready (historical sync)
   if (msg.timestamp && msg.timestamp < readyTimestamp) return;
 
@@ -251,7 +274,7 @@ client.on("message", async (msg) => {
   }
 });
 
-client.on("message_create", async (msg) => {
+c.on("message_create", async (msg) => {
   // Skip messages from before the bridge was ready (historical sync)
   if (msg.timestamp && msg.timestamp < readyTimestamp) return;
   if (!msg.fromMe) return;
@@ -286,6 +309,73 @@ client.on("message_create", async (msg) => {
     log(`Error handling message_create: ${err.message}`);
   }
 });
+
+}  // end attachHandlers(c)
+
+// ---------------------------------------------------------------------------
+// Init watchdog + retry — auto-recovers from "stuck before authenticated"
+//
+// Failure mode this protects against: wwebjs's ``client.initialize()`` hangs
+// for 2+ minutes during the WhatsApp Web page load (most often when the
+// pinned ``webVersionCache`` URL 404s, when leftover Chromium zombies hold
+// the auth dir lock, or when WhatsApp pushes a protocol change). The
+// "Initialize error: Runtime.callFunctionOn timed out" we see in logs is
+// puppeteer's protocolTimeout firing on a wwebjs JS call that never returns.
+//
+// Strategy: set a 60s watchdog when initialize() is called. If we don't
+// reach the ``authenticated`` event within that window, kill Chromium with
+// ``client.destroy()``, build a fresh client, re-attach handlers, and
+// re-run initialize. After ``MAX_INIT_RETRIES`` failures we emit a fatal
+// error and exit non-zero so the Python parent can decide what to do (in
+// practice it logs and continues without WhatsApp).
+// ---------------------------------------------------------------------------
+
+const MAX_INIT_RETRIES = 2;
+const INIT_WATCHDOG_MS = 60_000;
+let initAttempt = 0;
+let authedThisAttempt = false;
+let initWatchdog = null;
+
+async function startClientWithWatchdog() {
+  initAttempt += 1;
+  authedThisAttempt = false;
+
+  // Cancel any prior watchdog before arming a new one (defensive — should
+  // already be cleared by the time we get here).
+  if (initWatchdog) clearTimeout(initWatchdog);
+
+  initWatchdog = setTimeout(async () => {
+    if (authedThisAttempt) return;  // raced with the auth event
+    log(`Stuck before 'authenticated' for ${INIT_WATCHDOG_MS / 1000}s — recovering (attempt ${initAttempt})`);
+    if (initAttempt > MAX_INIT_RETRIES) {
+      log(`Max init retries reached — bridge giving up`);
+      emitEvent("error", { message: "WhatsApp bridge stuck before authentication after retries", fatal: true });
+      try { await client.destroy(); } catch (_) {}
+      process.exit(1);
+    }
+    // Tear down the dead Chromium and try fresh
+    try { await client.destroy(); } catch (err) { log(`destroy during retry: ${err.message}`); }
+    client = buildClient();
+    attachHandlers(client);
+    startClientWithWatchdog();
+  }, INIT_WATCHDOG_MS);
+
+  log(`Initializing WhatsApp client... (attempt ${initAttempt}/${MAX_INIT_RETRIES + 1})`);
+  try {
+    await client.initialize();
+  } catch (err) {
+    if (initWatchdog) { clearTimeout(initWatchdog); initWatchdog = null; }
+    log(`Initialize error: ${err.message}`);
+    if (initAttempt > MAX_INIT_RETRIES) {
+      emitEvent("error", { message: err.message, fatal: true });
+      process.exit(1);
+    }
+    try { await client.destroy(); } catch (_) {}
+    client = buildClient();
+    attachHandlers(client);
+    return startClientWithWatchdog();
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Command Handler (stdin)
@@ -485,9 +575,8 @@ async function gracefulShutdown() {
 process.on("SIGINT", gracefulShutdown);
 process.on("SIGTERM", gracefulShutdown);
 
-// Start
-log("Initializing WhatsApp client...");
-client.initialize().catch((err) => {
-  log(`Initialize error: ${err.message}`);
-  emitEvent("error", { message: err.message });
-});
+// Start: build the initial client, attach handlers, run with watchdog.
+// startClientWithWatchdog() handles its own retries + final exit on failure.
+client = buildClient();
+attachHandlers(client);
+startClientWithWatchdog();

@@ -72,6 +72,12 @@ class NotionHandler(IntegrationHandler):
     description = "Notes and databases"
     auth_type = "both"  # OAuth invite + raw integration token
     icon = "notion"
+    connect_help = [
+        "Open notion.so/my-integrations",
+        "Click 'New integration', give it a name and pick the workspace",
+        "Copy the 'Internal Integration Token' (starts with secret_)",
+        "In Notion, share each page/database you want CraftBot to access with the integration",
+    ]
     fields = [
         {"key": "token", "label": "Integration Token", "placeholder": "secret_...", "password": True},
     ]

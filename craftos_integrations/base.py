@@ -93,6 +93,13 @@ class IntegrationHandler(ABC):
     # the full set — examples: "Github", "Linkedin", "Send", "MessageCircle",
     # "Mail", "FileText". Empty string falls back to a generic icon.
     icon: str = ""
+    # Optional inline guidance shown when the user clicks the "?" button
+    # in the connect modal. Each entry is one step / one place to look —
+    # the frontend renders them as a numbered list inside a popover.
+    # Keep entries short and action-oriented ("Open X console", "Copy
+    # the Y token from the Z tab") — the goal is "where do I find this",
+    # not a full tutorial. ``None`` hides the "?" button.
+    connect_help: Optional[List[str]] = None
 
     # ----- Optional runtime config (post-connect knobs) -----
     # ``config_class`` is a plain ``@dataclass`` whose fields hold the

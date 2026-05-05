@@ -120,6 +120,7 @@ def get_metadata(integration: str) -> Optional[Dict[str, Any]]:
         "icon": getattr(handler, "icon", "") or "",
         "has_config": config_class is not None,
         "config_fields": [dict(f) for f in config_fields] if config_class else None,
+        "connect_help": getattr(handler, "connect_help", None),
     }
 
 

@@ -85,6 +85,13 @@ class SlackHandler(IntegrationHandler):
     description = "Team messaging"
     auth_type = "both"  # OAuth invite + raw bot token
     icon = "slack"
+    connect_help = [
+        "Open api.slack.com/apps",
+        "Click 'Create New App' → 'From scratch', pick your workspace",
+        "Open 'OAuth & Permissions' in the left sidebar",
+        "Add bot scopes: chat:write, channels:read, users:read (more as needed)",
+        "Click 'Install to Workspace' at the top, then copy the 'Bot User OAuth Token' (xoxb-...)",
+    ]
     fields = [
         {"key": "bot_token", "label": "Bot Token", "placeholder": "xoxb-...", "password": True},
         {"key": "workspace_name", "label": "Workspace Name (optional)", "placeholder": "My Workspace", "password": False, "optional": True},

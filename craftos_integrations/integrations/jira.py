@@ -79,6 +79,12 @@ class JiraHandler(IntegrationHandler):
     description = "Issue tracking and project management"
     auth_type = "token"
     icon = "jira"
+    connect_help = [
+        "Domain → your Jira URL host (e.g. mycompany.atlassian.net)",
+        "Email → the address you log into Jira with",
+        "API Token: open id.atlassian.com/manage-profile/security/api-tokens",
+        "Click 'Create API token', label it (e.g. 'CraftBot'), copy the value",
+    ]
     fields = [
         {"key": "domain", "label": "Jira Domain", "placeholder": "mycompany.atlassian.net", "password": False},
         {"key": "email", "label": "Email", "placeholder": "you@example.com", "password": False},
