@@ -22,6 +22,7 @@ PLATFORM_CONVERSATION_ACTIONS: Dict[str, List[str]] = {
     "discord":           ["send_discord_message", "send_discord_dm"],
     "github":            ["add_github_comment", "create_github_issue"],
     "jira":              ["add_jira_comment", "create_jira_issue"],
+    "lark":              ["send_lark_message"],
     "line":              ["send_line_message"],
     "slack":             ["send_slack_message"],
     "telegram_bot":      ["send_telegram_bot_message"],
