@@ -50,7 +50,11 @@ from app.config import (
 
 from app.internal_action_interface import InternalActionInterface
 from app.llm import LLMInterface, LLMCallType
-from agent_core.core.impl.llm.errors import classify_llm_error, LLMConsecutiveFailureError
+from agent_core.core.impl.llm.errors import (
+    classify_llm_error,
+    classify_llm_error_message,
+    LLMConsecutiveFailureError,
+)
 from app.vlm_interface import VLMInterface
 from app.database_interface import DatabaseInterface
 from app.logger import logger
@@ -1297,20 +1301,43 @@ class AgentBase:
         if not session_to_use or not self.event_stream_manager:
             return
 
-        # Get user-friendly error message
-        user_message = classify_llm_error(error)
-
-        # Fatal LLM errors must not re-queue the task - that causes infinite retry loops
-        # Walk the full exception chain (__cause__, __context__) to detect wrapped errors
+        # Walk the exception chain (__cause__, __context__) to detect the
+        # fatal-LLM case. We need the LLMConsecutiveFailureError to surface
+        # the *cause* of the 5 failures (e.g. "rate-limited on Google AI
+        # Studio"), not the meta-message about retry counts.
         is_fatal_llm_error = False
+        fatal_exc: LLMConsecutiveFailureError | None = None
+        seen: set[int] = set()
         exc: BaseException | None = error
-        while exc is not None:
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
             if isinstance(exc, LLMConsecutiveFailureError):
                 is_fatal_llm_error = True
+                fatal_exc = exc
                 break
-            exc = exc.__cause__ or exc.__context__
-            if exc is error:  # prevent infinite loop on circular chains
+            cause = exc.__cause__ or exc.__context__
+            if cause is None or cause is exc:
                 break
+            exc = cause
+
+        # Compose the user-facing message. For the fatal case we lead with
+        # the cause (already a rich detailed string from the classifier)
+        # and prefix the abort context. For non-fatal cases the RuntimeError
+        # we receive was already constructed from `info.message` upstream
+        # in interface.py, so str(error) IS the rich text — classify is a
+        # no-op fallthrough that returns the same string back.
+        if is_fatal_llm_error and fatal_exc is not None and fatal_exc.last_error_info is not None:
+            cause_msg = fatal_exc.last_error_info.message
+            user_message = f"Aborted after {fatal_exc.failure_count} consecutive failures. {cause_msg}"
+        elif is_fatal_llm_error and fatal_exc is not None:
+            # Old code path that didn't attach last_error_info — fall back
+            # to the wrapper's str(). Better than empty.
+            user_message = str(fatal_exc)
+        else:
+            try:
+                user_message = classify_llm_error_message(error)
+            except Exception:
+                user_message = str(error) or "AI service error"
 
         try:
             logger.debug("[REACT ERROR] Logging to event stream")

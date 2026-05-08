@@ -1458,7 +1458,8 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             provider = data.get("provider", "")
             api_key = data.get("apiKey")
             base_url = data.get("baseUrl")
-            await self._handle_model_connection_test(provider, api_key, base_url)
+            model = data.get("model")
+            await self._handle_model_connection_test(provider, api_key, base_url, model)
 
         elif msg_type == "model_validate_save":
             await self._handle_model_validate_save(data)
@@ -3673,6 +3674,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         provider: str,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> None:
         """Test connection to a model provider."""
         try:
@@ -3680,6 +3682,7 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 provider=provider,
                 api_key=api_key,
                 base_url=base_url,
+                model=model,
             )
             await self._broadcast({
                 "type": "model_connection_test",

@@ -372,6 +372,7 @@ def test_connection(
     provider: str,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Test connection to a provider.
 
@@ -379,6 +380,10 @@ def test_connection(
         provider: Provider to test
         api_key: Optional API key to test with (if not provided, uses stored key)
         base_url: Optional base URL for byteplus/remote providers
+        model: Optional model id to verify. When provided the tester does a
+            tiny chat completion against this exact model so a typo in the
+            model id is caught at test time, not at first real call. When
+            omitted, falls back to a known-good test model (auth check only).
 
     Returns:
         Dict with test results
@@ -410,6 +415,7 @@ def test_connection(
             provider=provider,
             api_key=api_key,
             base_url=base_url,
+            model=model,
         )
 
         return result

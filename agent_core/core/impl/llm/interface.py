@@ -29,7 +29,7 @@ from agent_core.core.impl.llm.cache import (
     get_cache_config,
     get_cache_metrics,
 )
-from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError
+from agent_core.core.impl.llm.errors import LLMConsecutiveFailureError, classify_llm_error
 from agent_core.core.hooks import (
     GetTokenCountHook,
     SetTokenCountHook,
@@ -384,8 +384,14 @@ class LLMInterface:
 
             # Check if response is empty and provide diagnostics
             if not content:
+                # Prefer the classified rich message (provider + upstream +
+                # raw + action hint inline) over the bare exception string.
+                # This is what the user actually sees in the chat bubble.
+                error_info = response.get("error_info_obj")
                 error_msg = response.get("error", "")
-                if error_msg:
+                if error_info is not None:
+                    error_detail = error_info.message
+                elif error_msg:
                     error_detail = f"LLM provider returned error: {error_msg}"
                 else:
                     error_detail = (
@@ -402,7 +408,14 @@ class LLMInterface:
                     f"[LLM CONSECUTIVE FAILURE] Count: {self._consecutive_failures}/{self._max_consecutive_failures}"
                 )
                 if self._consecutive_failures >= self._max_consecutive_failures:
-                    raise LLMConsecutiveFailureError(self._consecutive_failures)
+                    # Attach the underlying classified info so the agent_base
+                    # error handler can show the *cause* of the 5 failures
+                    # (e.g. "rate-limited on Google AI Studio") instead of a
+                    # meta-message about retry counts.
+                    raise LLMConsecutiveFailureError(
+                        self._consecutive_failures,
+                        last_error_info=error_info,
+                    )
                 raise RuntimeError(error_detail)
 
             # Success - reset consecutive failure counter
@@ -428,7 +441,17 @@ class LLMInterface:
                 f"[LLM CONSECUTIVE FAILURE] Count: {self._consecutive_failures}/{self._max_consecutive_failures} | Error: {e}"
             )
             if self._consecutive_failures >= self._max_consecutive_failures:
-                raise LLMConsecutiveFailureError(self._consecutive_failures, last_error=e) from e
+                # Classify on the way out so the fatal-failure handler can
+                # surface the cause, not just the count.
+                try:
+                    info = classify_llm_error(e, provider=self.provider, model=self.model)
+                except Exception:
+                    info = None
+                raise LLMConsecutiveFailureError(
+                    self._consecutive_failures,
+                    last_error=e,
+                    last_error_info=info,
+                ) from e
             raise
 
     @profile("llm_generate_response", OperationCategory.LLM)
@@ -1343,6 +1366,18 @@ class LLMInterface:
         if exc_obj:
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
             result["error"] = error_str
+            # Classify once and stash the LLMErrorInfo object so the
+            # outer `_generate_response_sync` can put `info.message`
+            # (the rich detailed string) into the RuntimeError it raises,
+            # and attach the info to LLMConsecutiveFailureError at the
+            # 5-failure threshold. The classifier is wrapped in try/except
+            # so it can never break the error path itself.
+            try:
+                result["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
             result["content"] = ""
             logger.error(f"[OLLAMA_ERROR] {error_str}")
         else:
@@ -1464,6 +1499,18 @@ class LLMInterface:
         if exc_obj:
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
             result["error"] = error_str
+            # Classify once and stash the LLMErrorInfo object so the
+            # outer `_generate_response_sync` can put `info.message`
+            # (the rich detailed string) into the RuntimeError it raises,
+            # and attach the info to LLMConsecutiveFailureError at the
+            # 5-failure threshold. The classifier is wrapped in try/except
+            # so it can never break the error path itself.
+            try:
+                result["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
             result["content"] = ""
             logger.error(f"[GEMINI_ERROR] {error_str}")
         else:
@@ -1701,6 +1748,18 @@ class LLMInterface:
         if exc_obj:
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
             result["error"] = error_str
+            # Classify once and stash the LLMErrorInfo object so the
+            # outer `_generate_response_sync` can put `info.message`
+            # (the rich detailed string) into the RuntimeError it raises,
+            # and attach the info to LLMConsecutiveFailureError at the
+            # 5-failure threshold. The classifier is wrapped in try/except
+            # so it can never break the error path itself.
+            try:
+                result["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
             result["content"] = ""
             logger.error(f"[BYTEPLUS_ERROR] {error_str}")
         else:
@@ -1848,6 +1907,18 @@ class LLMInterface:
         if exc_obj:
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
             result["error"] = error_str
+            # Classify once and stash the LLMErrorInfo object so the
+            # outer `_generate_response_sync` can put `info.message`
+            # (the rich detailed string) into the RuntimeError it raises,
+            # and attach the info to LLMConsecutiveFailureError at the
+            # 5-failure threshold. The classifier is wrapped in try/except
+            # so it can never break the error path itself.
+            try:
+                result["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
             result["content"] = ""
             logger.error(f"[ANTHROPIC_ERROR] {error_str}")
         else:

@@ -363,10 +363,13 @@ export function ModelSettings() {
 
   const handleTestConnection = () => {
     setIsTesting(true)
+    // Send the user's actual model so the test exercises it; otherwise a
+    // typo passes the test (auth-only) and only fails at first real call.
     send('model_connection_test', {
       provider,
       apiKey: newApiKey || undefined,
       baseUrl: newBaseUrl || baseUrls[provider],
+      model: newLlmModel || currentLlmModel || undefined,
     })
   }
 
@@ -381,6 +384,7 @@ export function ModelSettings() {
         provider,
         apiKey: newApiKey || undefined,
         baseUrl: newBaseUrl || baseUrls[provider],
+        model: newLlmModel || currentLlmModel || undefined,
       })
     } else {
       setIsSaving(true)
