@@ -1,21 +1,32 @@
 # -*- coding: utf-8 -*-
-"""Lark integration — send-only via REST.
+"""Lark integration — bidirectional messaging.
 
 Lark is ByteDance's enterprise messaging platform (the China-region twin
-``Feishu`` shares the API; the only difference is the API host). This v1
+``Feishu`` shares the API; the only difference is the API host). This
 integration targets **global Lark** (``open.larksuite.com``) with a
-custom-app, tenant-access-token auth flow — no long-poll listener, send
-methods only.
+custom-app, tenant-access-token auth flow.
 
-Long-poll receive is supported by Lark's official ``lark-oapi`` Python
-SDK and could be added later as v2 for two-way chat. For v1 the goal is
-"CraftBot can post to my Lark workspace", which is the typical
-notification use case.
+Sending: REST via ``/im/v1/messages`` with an auto-refreshing
+``tenant_access_token`` (2-hour TTL, refreshed within 60s of expiry).
+
+Receiving: persistent-connection WebSocket via the official ``lark-oapi``
+SDK. The SDK's blocking ``Client.start()`` runs on a daemon thread and
+events are dispatched back to the agent's asyncio loop via
+``run_coroutine_threadsafe``. Auto-reconnect is delegated to the SDK.
+
+Setup gotcha worth knowing up-front: events do **not** flow until the
+app version is approved by the tenant admin. The WS will connect and
+authenticate (no errors) but messages won't arrive until approval lands.
 
 Auth flow:
   1. User creates a Custom App at ``open.larksuite.com/app``.
-  2. Grabs App ID + App Secret from the app's Credentials tab.
-  3. CraftBot mints a ``tenant_access_token`` via the
+  2. Adds the Bot feature, subscribes to ``im.message.receive_v1``, picks
+     'Receive callbacks through persistent connection' as subscription mode.
+  3. Enables permissions: ``im:message``, ``im:message.p2p_msg``,
+     ``im:message.group_at_msg:readonly``.
+  4. Submits a version for tenant admin approval.
+  5. Grabs App ID + App Secret from Credentials & Basic Info.
+  6. CraftBot mints a ``tenant_access_token`` via the
      ``/open-apis/auth/v3/tenant_access_token/internal`` endpoint and
      refreshes it before the 2-hour expiry on every send.
 """
@@ -78,17 +89,19 @@ LARK = IntegrationSpec(
 class LarkHandler(IntegrationHandler):
     spec = LARK
     display_name = "Lark"
-    description = "Messaging via Lark (send-only)"
+    description = "Two-way messaging via Lark (send + receive)"
     auth_type = "token"
     icon = "lark"
     connect_help = [
-        "Open Lark Developer Console: open.larksuite.com/app",
-        "Sign in with your Lark account",
-        "Click 'Create Custom App', give it a name, click Create",
-        "App ID + App Secret → 'Credentials & Basic Info' tab",
-        "Permissions tab → enable: im:message, im:message.group_at_msg, im:message.p2p_msg",
-        "Events & Callbacks tab → enable Bot capability",
-        "Version Management → create a version, submit for tenant admin approval",
+        "Open Lark Developer Console: open.larksuite.com/app and sign in",
+        "Create Custom App → give it a name",
+        "Add Features (left sidebar) → Bot → Add",
+        "Events & Callbacks → Event Configuration → Subscription Mode: select 'Receive callbacks through persistent connection'",
+        "Events & Callbacks → Event Configuration → Add Event: subscribe to 'im.message.receive_v1' (Receive Message) — without this, no DMs reach CraftBot",
+        "Events & Callbacks → Encryption Strategy: leave Encryption Key empty (this integration does not yet support encrypted events)",
+        "Permissions & Scopes → enable: im:message, im:message.p2p_msg, im:message.group_at_msg:readonly (the last is for group @-mentions and only appears after Bot is added)",
+        "Version Management → Create Version → submit for tenant admin approval — events do NOT flow until the version is Released",
+        "Credentials & Basic Info → copy App ID + App Secret and paste them below",
     ]
     fields = [
         {"key": "app_id", "label": "App ID",
@@ -267,6 +280,7 @@ class LarkClient(BasePlatformClient):
 
         def _on_message(event: Any) -> None:
             """Synchronous handler running on the SDK's WS thread."""
+            logger.info(f"[LARK] WS event received: {type(event).__name__}")
             try:
                 msg = event.event.message
                 sender = event.event.sender
@@ -290,7 +304,7 @@ class LarkClient(BasePlatformClient):
             event_handler=handler,
             domain="https://open.larksuite.com",
             auto_reconnect=True,
-            log_level=lark.LogLevel.WARNING,
+            log_level=lark.LogLevel.INFO,
         )
 
         def _run_ws() -> None:
