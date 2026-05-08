@@ -35,8 +35,6 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
-import time
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,23 +52,14 @@ from .. import (
 )
 from ..helpers import Result, request as http_request
 from ..logger import get_logger
+from ._lark_common import (
+    LARK_API_BASE,
+    LarkCredential,
+    make_headers,
+    validate_and_mint_token,
+)
 
 logger = get_logger(__name__)
-
-LARK_API_BASE = "https://open.larksuite.com/open-apis"
-
-
-@dataclass
-class LarkCredential:
-    app_id: str = ""
-    app_secret: str = ""
-    bot_name: str = ""
-    bot_open_id: str = ""
-    # Cached tenant_access_token + its absolute Unix expiry. Saved so we
-    # don't mint a new token on every restart, but always refresh when
-    # within 60s of expiry (defensive — Lark's clocks vs ours).
-    tenant_access_token: str = ""
-    token_expires_at: float = 0.0
 
 
 LARK = IntegrationSpec(
@@ -116,22 +105,9 @@ class LarkHandler(IntegrationHandler):
                            "Get from open.larksuite.com/app → your app → Credentials tab.")
         app_id, app_secret = args[0], args[1]
 
-        # Validate by minting a tenant_access_token. Lark returns code != 0
-        # when credentials are wrong (200 OK with a JSON error body).
-        result = http_request(
-            "POST", f"{LARK_API_BASE}/auth/v3/tenant_access_token/internal",
-            json={"app_id": app_id, "app_secret": app_secret},
-            expected=(200,),
-        )
-        if "error" in result:
-            return False, f"Lark auth request failed: {result['error']}"
-        body = result.get("result", {})
-        if body.get("code", -1) != 0:
-            return False, f"Invalid Lark credentials: {body.get('msg', 'unknown error')}"
-
-        token = body.get("tenant_access_token", "")
-        expire = float(body.get("expire", 0))
-        token_expires_at = time.time() + expire
+        token, token_expires_at, err = validate_and_mint_token(app_id, app_secret)
+        if err:
+            return False, err
 
         # Best-effort: fetch bot info so we can show the bot name in status().
         # Falls back gracefully if the call fails (e.g. bot capability not
@@ -205,38 +181,8 @@ class LarkClient(BasePlatformClient):
             raise RuntimeError("No Lark credentials. Use /lark login first.")
         return self._cred
 
-    def _ensure_token(self) -> str:
-        """Return a valid tenant_access_token, refreshing if within 60s of expiry.
-
-        Persists the refreshed token back to disk so other processes
-        (or a restart) reuse it instead of minting fresh.
-        """
-        cred = self._load()
-        now = time.time()
-        if cred.tenant_access_token and cred.token_expires_at > now + 60:
-            return cred.tenant_access_token
-        result = http_request(
-            "POST", f"{LARK_API_BASE}/auth/v3/tenant_access_token/internal",
-            json={"app_id": cred.app_id, "app_secret": cred.app_secret},
-            expected=(200,),
-        )
-        if "error" in result:
-            raise RuntimeError(f"Lark token refresh failed: {result['error']}")
-        body = result.get("result", {})
-        if body.get("code", -1) != 0:
-            raise RuntimeError(f"Lark token refresh rejected: {body.get('msg', 'unknown')}")
-        token = body.get("tenant_access_token", "")
-        expire = float(body.get("expire", 0))
-        cred.tenant_access_token = token
-        cred.token_expires_at = now + expire
-        save_credential(self.spec.cred_file, cred)
-        return token
-
     def _headers(self) -> Dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self._ensure_token()}",
-            "Content-Type": "application/json; charset=utf-8",
-        }
+        return make_headers(self._load(), self.spec.cred_file)
 
     async def connect(self) -> None:
         self._load()
