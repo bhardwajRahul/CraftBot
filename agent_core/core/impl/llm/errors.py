@@ -142,7 +142,7 @@ MSG_SERVICE = "The provider service is unavailable. Try again later."
 MSG_CONNECTION = "Could not reach the provider. Check your network connection."
 MSG_GENERIC = "Something went wrong calling the AI service."
 MSG_CONSECUTIVE_FAILURE = (
-    "Aborted after {count} consecutive failures."
+    "Aborted after consecutive failures."
 )
 
 
@@ -286,7 +286,20 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
         # Grok edge case — body is the raw string message
         body_dict = {"message": body}
 
-    raw_message: str = (body_dict.get("message") if isinstance(body_dict.get("message"), str) else None) or str(exc)
+    # Pick the cleanest user-facing string out of the body. Different
+    # OpenAI-compatible providers stash it under different keys:
+    #   - OpenAI / OpenRouter / DeepSeek: body["message"]
+    #   - Grok bad-model (400):           body["error"]   (a string)
+    #   - Grok bad-key (400, body=string):  handled above by string→dict shim
+    # Falling back to str(exc) produces "Error code: 400 - {full body dict}",
+    # which is too noisy for the chat — only use it when nothing else fits.
+    raw_message_candidate: Optional[str] = None
+    for key in ("message", "error"):
+        v = body_dict.get(key)
+        if isinstance(v, str) and v:
+            raw_message_candidate = v
+            break
+    raw_message: str = raw_message_candidate or str(exc)
     code = body_dict.get("code")
     error_type = body_dict.get("type")
 

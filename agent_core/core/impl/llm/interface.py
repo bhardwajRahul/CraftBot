@@ -1306,6 +1306,19 @@ class LLMInterface:
             # Include error details for better diagnostics
             error_str = f"{type(exc_obj).__name__}: {str(exc_obj)}"
             result["error"] = error_str
+            # Classify once and stash the LLMErrorInfo object so the outer
+            # `_generate_response_sync` can attach it to the consecutive-
+            # failure exception. Without this, providers that go through
+            # this path (OpenAI, OpenRouter, Grok, DeepSeek, MiniMax,
+            # Moonshot) would surface a bare "Aborted after N consecutive
+            # failures." with no cause when they fail. The classifier is
+            # wrapped in try/except so it can never break the error path.
+            try:
+                result["error_info_obj"] = classify_llm_error(
+                    exc_obj, provider=self.provider, model=self.model
+                )
+            except Exception:
+                pass
             result["content"] = ""
             logger.error(f"[OPENAI_ERROR] {error_str}")
         else:

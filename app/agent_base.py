@@ -1328,7 +1328,7 @@ class AgentBase:
         # no-op fallthrough that returns the same string back.
         if is_fatal_llm_error and fatal_exc is not None and fatal_exc.last_error_info is not None:
             cause_msg = fatal_exc.last_error_info.message
-            user_message = f"Aborted after {fatal_exc.failure_count} consecutive failures. {cause_msg}"
+            user_message = f"Aborted after consecutive failures. {cause_msg}"
         elif is_fatal_llm_error and fatal_exc is not None:
             # Old code path that didn't attach last_error_info — fall back
             # to the wrapper's str(). Better than empty.
