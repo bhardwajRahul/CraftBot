@@ -31,7 +31,7 @@ MODEL_REGISTRY = {
     },
     "minimax": {
         InterfaceType.LLM: "MiniMax-Text-01",
-        InterfaceType.VLM: None,
+        InterfaceType.VLM: "MiniMax-VL-01",
         InterfaceType.EMBEDDING: None,
     },
     "deepseek": {
@@ -41,7 +41,7 @@ MODEL_REGISTRY = {
     },
     "moonshot": {
         InterfaceType.LLM: "moonshot-v1-8k",
-        InterfaceType.VLM: None,
+        InterfaceType.VLM: "moonshot-v1-8k-vision-preview",
         InterfaceType.EMBEDDING: None,
     },
     "grok": {
