@@ -106,7 +106,7 @@ export function ModelSettings() {
     onMessage,
     isConnected,
     provider === 'openrouter',
-    baseUrls['openrouter'] || newBaseUrl || undefined,
+    newBaseUrl || baseUrls['openrouter'] || undefined,
   )
 
   const fmtBytes = (n: number) => {
@@ -221,6 +221,7 @@ export function ModelSettings() {
           setNewVlmModel(prev => {
             const effective = prev || currentVlmModel
             if (!d.models.includes(effective)) {
+              setHasChanges(true)
               return d.models[0]
             }
             return prev
