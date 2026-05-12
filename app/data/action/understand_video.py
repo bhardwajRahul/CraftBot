@@ -5,7 +5,7 @@ from agent_core import action
     description="Uses the configured VLM model (default: Gemini 1.5 Pro) for native video understanding when a Google API key is configured. Falls back to keyframe extraction via OpenCV if no Google API key is available.",
     mode="CLI",
     action_sets=["document_processing", "image", "video"],
-    requirement=["google-generativeai"],
+    requirement=["google-genai"],
     input_schema={
         "video_path": {
             "type": "string",
@@ -88,7 +88,7 @@ def understand_video(input_data: dict) -> dict:
 # delegating entirely to InternalActionInterface. The reason is architectural:
 #
 # PATH 1 — Gemini Native (below, runs when api_key is present):
-#   Uses the Gemini Files API (genai.upload_file) for true native video
+#   Uses the Gemini Files API (client.files.upload) for true native video
 #   understanding. The full video is uploaded and processed by the model with
 #   temporal context — no frame sampling needed. The uploaded file is deleted
 #   from Gemini servers after the call. The full summary is saved to disk.
@@ -105,25 +105,27 @@ def understand_video(input_data: dict) -> dict:
 
     if api_key:
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
+            from google import genai
+            client = genai.Client(api_key=api_key)
             import time
             from datetime import datetime
             from app.config import AGENT_WORKSPACE_ROOT
 
-            video_file = genai.upload_file(path=video_path)
-            
+            video_file = client.files.upload(file=video_path)
+
             while video_file.state.name == "PROCESSING":
                 time.sleep(2)
-                video_file = genai.get_file(video_file.name)
-                
+                video_file = client.files.get(name=video_file.name)
+
             vlm_model = get_vlm_model() or "gemini-1.5-pro"
-            model = genai.GenerativeModel(vlm_model)
             prompt = query if query else "Understand and describe the contents of this video."
-            response = model.generate_content([video_file, prompt])
-            
-            genai.delete_file(video_file.name)
-            
+            response = client.models.generate_content(
+                model=vlm_model,
+                contents=[video_file, prompt],
+            )
+
+            client.files.delete(name=video_file.name)
+
             full_text = response.text
             ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
             out_path = os.path.join(AGENT_WORKSPACE_ROOT, f"video_summary_{ts}.txt")
