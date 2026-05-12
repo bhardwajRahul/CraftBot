@@ -1165,8 +1165,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         # is ready to receive the task creation event.
         if is_first_client:
             from app.onboarding import onboarding_manager
+            agent = self._controller.agent
+            # If the LLM is already initialized (e.g. user pre-configured API key
+            # in Docker by editing settings.json) but hard onboarding was never
+            # completed through the wizard, auto-complete it so that soft
+            # onboarding can proceed.
+            if agent and agent.is_llm_initialized and onboarding_manager.needs_hard_onboarding:
+                onboarding_manager.mark_hard_complete()
             if onboarding_manager.needs_soft_onboarding:
-                agent = self._controller.agent
                 if agent:
                     import asyncio
                     asyncio.create_task(agent.trigger_soft_onboarding())
