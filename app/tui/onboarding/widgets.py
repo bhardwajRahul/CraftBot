@@ -695,7 +695,19 @@ class OnboardingWizardScreen(Screen):
         self._handler.on_complete(cancelled=False)
         self.app.pop_screen()
 
+    def action_skip_step(self) -> None:
+        """Skip the current optional step (Ctrl+S)."""
+        step = self._handler.get_step(self._current_step)
+        if not step.required:
+            self._skip_step()
+
     def action_cancel(self) -> None:
         """Handle Escape key to cancel wizard."""
         self._handler.on_complete(cancelled=True)
         self.app.pop_screen()
+
+    def action_focus_nav(self) -> None:
+        """Focus the navigation bar (Tab)."""
+        nav = self.query_one("#nav-actions")
+        if hasattr(nav, 'focus'):
+            nav.focus()
