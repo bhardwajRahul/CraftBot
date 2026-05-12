@@ -42,6 +42,15 @@ from agent_core.core.hooks import (
 from agent_core.utils.logger import logger
 
 
+class _EmptyResponse(Exception):
+    """Raised when a provider returns empty/error content and the failure has already been counted.
+
+    Using a distinct class prevents the outer except-Exception block in
+    _generate_response_sync from double-incrementing the consecutive-failure
+    counter for the same call.
+    """
+
+
 # Models that do NOT support assistant message prefill
 # These require output_config.format for structured JSON output
 _ANTHROPIC_NO_PREFILL_PATTERNS = (
@@ -416,7 +425,9 @@ class LLMInterface:
                         self._consecutive_failures,
                         last_error_info=error_info,
                     )
-                raise RuntimeError(error_detail)
+                # Use _EmptyResponse so the outer except-Exception block does NOT
+                # re-increment the counter for this same call (double-counting bug).
+                raise _EmptyResponse(error_detail)
 
             # Success - reset consecutive failure counter
             self._consecutive_failures = 0
@@ -434,6 +445,9 @@ class LLMInterface:
         except LLMConsecutiveFailureError:
             # Re-raise consecutive failure errors without incrementing counter
             raise
+        except _EmptyResponse as e:
+            # Failure already counted above; convert back to RuntimeError for callers.
+            raise RuntimeError(str(e)) from None
         except Exception as e:
             # Track consecutive failure for any other exception
             self._consecutive_failures += 1
@@ -1248,7 +1262,9 @@ class LLMInterface:
                 request_kwargs["extra_body"] = extra_body
 
             response = self.client.chat.completions.create(**request_kwargs)
-            content = response.choices[0].message.content.strip()
+            if not response.choices:
+                raise ValueError(f"Provider returned no choices (model={self.model!r})")
+            content = (response.choices[0].message.content or "").strip()
             token_count_input = response.usage.prompt_tokens
             token_count_output = response.usage.completion_tokens
 

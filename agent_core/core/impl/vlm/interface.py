@@ -508,7 +508,9 @@ class VLMInterface:
             request_kwargs["max_tokens"] = 2048
 
         response = self.client.chat.completions.create(**request_kwargs)
-        content = response.choices[0].message.content.strip()
+        if not response.choices:
+            raise ValueError(f"VLM provider returned no choices (model={self.model!r})")
+        content = (response.choices[0].message.content or "").strip()
         token_count_input = response.usage.prompt_tokens
         token_count_output = response.usage.completion_tokens
         total_tokens = token_count_input + token_count_output

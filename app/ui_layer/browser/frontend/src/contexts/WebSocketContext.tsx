@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type {
   ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics,
   TaskCancelResponse, FilteredDashboardMetrics, MetricsTimePeriod, OnboardingStep,
@@ -209,6 +210,9 @@ const WebSocketContext = createContext<WebSocketContextType | undefined>(undefin
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WebSocketState>(defaultState)
   const wsRef = useRef<WebSocket | null>(null)
+  const navigate = useNavigate()
+  const navigateRef = useRef(navigate)
+  navigateRef.current = navigate
   const reconnectTimeoutRef = useRef<number | null>(null)
   const isConnectingRef = useRef<boolean>(false)
   const reconnectCountRef = useRef<number>(0)
@@ -978,6 +982,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
               : p
           ),
         }))
+        break
+      }
+
+      case 'navigate': {
+        const { path } = (msg.data || {}) as { path?: string }
+        if (path) navigateRef.current(path)
         break
       }
     }
