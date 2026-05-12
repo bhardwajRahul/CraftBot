@@ -1953,17 +1953,56 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     # Normalise the value to the URL that actually worked
                     value = ollama_url
                 elif value:
-                    test_result = test_connection(
-                        provider=provider,
-                        api_key=value,
-                    )
+                    from app.models import MODEL_REGISTRY, InterfaceType
+                    from app.onboarding.interfaces.steps import ApiKeyStep
+                    # For proxied providers, value is a dict {api_key, via, or_model?}.
+                    # via='direct' → test the provider's own endpoint.
+                    # via='openrouter' → test via OpenRouter proxy.
+                    if provider in ApiKeyStep.OPENROUTER_PROXIED:
+                        if isinstance(value, dict):
+                            actual_key = value.get("api_key", "")
+                            via = value.get("via", "openrouter")
+                            or_model = value.get("or_model", "")
+                        else:
+                            actual_key = value
+                            via = "direct"
+                            or_model = ""
+
+                        if via == "openrouter":
+                            if not or_model:
+                                from agent_core.core.models.factory import _OR_MODEL_MAP, _to_openrouter_slug
+                                native_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM, "")
+                                or_model = _OR_MODEL_MAP.get(provider, {}).get(native_model) or _to_openrouter_slug(provider, native_model)
+                            test_result = test_connection(
+                                provider="openrouter",
+                                api_key=actual_key,
+                                model=or_model,
+                            )
+                        else:
+                            # Direct API test
+                            native_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM)
+                            test_result = test_connection(
+                                provider=provider,
+                                api_key=actual_key,
+                                model=native_model,
+                            )
+                        # Store via + resolved or_model so _complete() knows how to save
+                        value = {"api_key": actual_key, "via": via, "or_model": or_model}
+                    else:
+                        actual_key = value if isinstance(value, str) else value.get("api_key", "")
+                        default_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM)
+                        test_result = test_connection(
+                            provider=provider,
+                            api_key=actual_key,
+                            model=default_model,
+                        )
                     if not test_result.get("success"):
                         error_msg = test_result.get("error") or test_result.get("message") or "Connection test failed"
                         await self._broadcast({
                             "type": "onboarding_submit",
                             "data": {
                                 "success": False,
-                                "error": f"Invalid API key: {error_msg}",
+                                "error": error_msg,
                                 "index": controller.current_step_index,
                             },
                         })

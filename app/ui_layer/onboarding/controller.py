@@ -244,7 +244,16 @@ class OnboardingFlowController:
 
         # Extract collected data
         provider = self._state.collected_data.get("provider", "openai")
-        api_key = self._state.collected_data.get("api_key", "")
+        raw_api_key_value = self._state.collected_data.get("api_key", "")
+        # Proxied providers (moonshot/minimax) submit {api_key, via, or_model?}
+        if isinstance(raw_api_key_value, dict):
+            api_key = raw_api_key_value.get("api_key", "")
+            submitted_or_model = raw_api_key_value.get("or_model", "")
+            proxied_via = raw_api_key_value.get("via", "openrouter")
+        else:
+            api_key = raw_api_key_value
+            submitted_or_model = ""
+            proxied_via = "direct"
         agent_name_data = self._state.collected_data.get("agent_name", "Agent")
         # Agent name step is a form step, so the collected value is a dict.
         # Accept plain strings too for backward compatibility.
@@ -256,11 +265,29 @@ class OnboardingFlowController:
         selected_skills = self._state.collected_data.get("skills", [])
 
         # Save provider configuration to settings.json
+        from app.onboarding.interfaces.steps import ApiKeyStep
         if provider == "remote":
             # api_key holds the Ollama base URL for the remote provider
             remote_url = api_key or "http://localhost:11434"
             from app.tui.settings import save_remote_endpoint
             save_remote_endpoint(remote_url)
+        elif provider in ApiKeyStep.OPENROUTER_PROXIED and api_key:
+            if proxied_via == "openrouter":
+                # User chose to go via OpenRouter — save key as openrouter and set model slug.
+                if submitted_or_model:
+                    or_model = submitted_or_model
+                else:
+                    from agent_core.core.models.factory import _to_openrouter_slug, _OR_MODEL_MAP
+                    from app.models import MODEL_REGISTRY, InterfaceType
+                    native_model = MODEL_REGISTRY.get(provider, {}).get(InterfaceType.LLM, "")
+                    or_model = _OR_MODEL_MAP.get(provider, {}).get(native_model) or _to_openrouter_slug(provider, native_model)
+                save_settings_to_json("openrouter", api_key)
+                from app.ui_layer.settings.model_settings import update_model_settings
+                update_model_settings(llm_model=or_model, vlm_model=or_model)
+                provider = "openrouter"
+            else:
+                # User has direct access — save key under the native provider.
+                save_settings_to_json(provider, api_key)
         elif provider and api_key:
             save_settings_to_json(provider, api_key)
 

@@ -40,7 +40,7 @@ MODEL_REGISTRY = {
         InterfaceType.EMBEDDING: None,
     },
     "moonshot": {
-        InterfaceType.LLM: "moonshot-v1-8k",
+        InterfaceType.LLM: "kimi-k2.5",
         InterfaceType.VLM: "moonshot-v1-8k-vision-preview",
         InterfaceType.EMBEDDING: None,
     },

@@ -68,9 +68,11 @@ def test_provider_connection(
         elif provider == "openrouter":
             url = base_url or cfg.default_base_url
             return _test_openrouter(api_key, url, timeout, model)
-        elif provider in ("minimax", "deepseek", "moonshot"):
+        elif provider == "deepseek":
             url = cfg.default_base_url
             return _test_openai_compat(provider, api_key, url, timeout, model)
+        elif provider in ("moonshot", "minimax"):
+            return _test_moonshot_minimax(provider, api_key, cfg.default_base_url, timeout, model)
         else:
             return {
                 "success": False,
@@ -85,6 +87,85 @@ def test_provider_connection(
             "provider": provider,
             "error": str(e),
         }
+
+
+# ─── OpenRouter proxy helpers (Moonshot / MiniMax) ────────────────────
+
+_OR_MODEL_MAP: dict = {
+    "moonshot": {
+        "kimi-k2.5": "moonshotai/kimi-k2.5",
+        "moonshot-v1-8k": "moonshotai/moonshot-v1-8k",
+        "moonshot-v1-32k": "moonshotai/moonshot-v1-32k",
+        "moonshot-v1-128k": "moonshotai/moonshot-v1-128k",
+        "moonshot-v1-8k-vision-preview": "moonshotai/moonshot-v1-8k-vision-preview",
+    },
+    "minimax": {
+        "MiniMax-Text-01": "minimax/minimax-01",
+        "MiniMax-VL-01": "minimax/minimax-01",
+        "abab6.5s-chat": "minimax/abab6.5s-chat",
+    },
+}
+
+_OR_NAMESPACE = {"moonshot": "moonshotai", "minimax": "minimax"}
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def _to_openrouter_slug_for_test(provider: str, model: str) -> str:
+    if "/" in model:
+        return model
+    explicit = _OR_MODEL_MAP.get(provider, {}).get(model)
+    if explicit:
+        return explicit
+    return f"{_OR_NAMESPACE.get(provider, provider)}/{model}"
+
+
+def _get_openrouter_fallback_for_test() -> tuple:
+    """Return (or_api_key, or_base_url) if OpenRouter is configured, else (None, None)."""
+    try:
+        from app.config import get_api_key
+        or_key = get_api_key("openrouter") or None
+        return (or_key, _OPENROUTER_BASE_URL) if or_key else (None, None)
+    except Exception:
+        return (None, None)
+
+
+def _test_moonshot_minimax(
+    provider: str,
+    api_key: Optional[str],
+    direct_url: str,
+    timeout: float,
+    model: Optional[str],
+) -> Dict[str, Any]:
+    """Test Moonshot or MiniMax.
+
+    Two distinct modes:
+    - Direct key provided: test only the provider's own endpoint. No silent
+      OR fallback — if it fails the caller gets the real error and can decide
+      whether to switch to OpenRouter.
+    - No key: try OpenRouter if configured (factory runtime-fallback path).
+    """
+    display = _DISPLAY.get(provider, provider)
+
+    if api_key:
+        # Test the direct endpoint only.  Returning OR-fallback success here
+        # would be misleading because the factory uses the direct key at runtime.
+        return _test_openai_compat(provider, api_key, direct_url, timeout, model)
+
+    # No direct key — check whether OpenRouter is configured as a fallback.
+    or_key, or_url = _get_openrouter_fallback_for_test()
+    if or_key:
+        or_model = _to_openrouter_slug_for_test(provider, model or "")
+        or_result = _test_openrouter(or_key, or_url, timeout, or_model)
+        if or_result.get("success"):
+            or_result["message"] += f" (routing {display} via OpenRouter)"
+        return or_result
+
+    return {
+        "success": False,
+        "message": f"API key is required for {display}, or configure OpenRouter as a fallback.",
+        "provider": provider,
+        "error": "No API key and OpenRouter is not configured.",
+    }
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────
