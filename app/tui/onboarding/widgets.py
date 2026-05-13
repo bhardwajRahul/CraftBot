@@ -286,6 +286,11 @@ class OnboardingWizardScreen(Screen):
 
     CSS = ONBOARDING_CSS
 
+    BINDINGS = [
+        ("ctrl+s", "skip_step", "Skip"),
+        ("escape", "cancel", "Cancel"),
+    ]
+
     def __init__(self, handler: "TUIHardOnboarding"):
         super().__init__()
         self._handler = handler

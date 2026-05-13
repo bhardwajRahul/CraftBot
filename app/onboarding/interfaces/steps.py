@@ -540,7 +540,7 @@ class MCPStep:
                 # are incompatible with the current OS
                 desc = server.get("description", f"MCP server: {server['name']}")
                 if server.get("platform_blocked"):
-                    desc += " (Windows-only — requires setup on this OS)"
+                    label += " (⚠ Windows-only — requires setup on this OS)"
                 options.append(StepOption(
                     value=server["name"],
                     label=label,
