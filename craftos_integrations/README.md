@@ -1,6 +1,6 @@
 # craftos_integrations
 
-A plug-and-play package of external integrations (Discord, Slack, Telegram, Gmail, Notion, GitHub, Jira, LinkedIn, Outlook, Twitter, WhatsApp Web/Business, …) that any Python host can drop in.
+A plug-and-play package of 19 external integrations (Discord, Slack, Telegram Bot + User, GitHub, Jira, Notion, LinkedIn, Outlook, Twitter, WhatsApp Web/Business, LINE, Lark, plus per-service Google: Gmail / Calendar / Drive / Docs / YouTube) that any Python host can drop in.
 
 The package owns:
 
@@ -157,16 +157,138 @@ Every OAuth-capable integration reads its credentials via `ConfigStore.get_oauth
 | twitter           | token       | (none — user supplies 4 OAuth1 keys)                                     |
 | discord           | token       | (none — user pastes a bot token)                                         |
 | whatsapp_business | token       | (none — user supplies access token + phone_number_id)                    |
+| line              | token       | (none — user pastes channel access token + channel secret)               |
+| lark              | token       | (none — user supplies App ID + App Secret from open.larksuite.com)       |
 | telegram_bot      | token       | optional `TELEGRAM_SHARED_BOT_TOKEN`, `TELEGRAM_SHARED_BOT_USERNAME` for `invite` flow |
 | telegram_user     | interactive | `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`                                   |
 | whatsapp_web      | interactive | (none — uses Node bridge + QR scan)                                      |
-| google            | oauth+PKCE  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                               |
+| gmail / google_* | oauth+PKCE  | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (shared across all five Google integrations) |
 | outlook           | oauth+PKCE  | `OUTLOOK_CLIENT_ID`                                                      |
 | linkedin          | oauth       | `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`                           |
 | notion            | both        | `NOTION_SHARED_CLIENT_ID`, `NOTION_SHARED_CLIENT_SECRET` (only for `invite`) |
 | slack             | both        | `SLACK_SHARED_CLIENT_ID`, `SLACK_SHARED_CLIENT_SECRET` (only for `invite`) |
 
 The discord voice helper additionally reads `extras["openai_api_key"]` (or `OPENAI_API_KEY` env) for STT/TTS.
+
+---
+
+## Per-integration runtime config
+
+Some integrations expose **runtime knobs** the user tunes after connecting — Discord's `mention_only`, GitHub's `watch_tag` / `watch_repos`, Twitter's `watch_tag`, WhatsApp Web's `self_messages_only`, etc. The package provides a uniform, schema-driven way to declare these on the handler, persist them to disk, and surface them to UI hosts.
+
+### Shape: declare two attributes on the handler
+
+```python
+@dataclass
+class DiscordConfig:
+    mention_only: bool = False
+    third_party_usernames: List[str] = field(default_factory=list)
+
+
+@register_handler(DISCORD.name)
+class DiscordHandler(IntegrationHandler):
+    spec = DISCORD
+    display_name = "Discord"
+    auth_type = "token"
+    fields = [{"key": "bot_token", "label": "Bot Token", "password": True}]
+
+    config_class = DiscordConfig
+    config_fields = [
+        {"key": "mention_only", "label": "Only when @-mentioned", "type": "checkbox",
+         "help": "Drop messages that don't @-mention the bot."},
+        {"key": "third_party_usernames", "label": "Allowed users", "type": "list",
+         "placeholder": "alice, bob",
+         "help": "Comma-separated Discord usernames or display names."},
+    ]
+```
+
+Both attributes are optional. An integration without `config_class` doesn't expose a configure UI — empty by default.
+
+### Field types
+
+Each entry in `config_fields` is a dict with these keys:
+
+| Key            | Required | Notes                                                                 |
+|----------------|----------|-----------------------------------------------------------------------|
+| `key`          | yes      | Dataclass field name; the value gets written to ``<name>_config.json`` |
+| `label`        | yes      | Human-readable label shown in the UI                                  |
+| `type`         | yes      | One of `text`, `textarea`, `list`, `checkbox`, `select`, `number`     |
+| `placeholder`  | no       | Hint text inside the input                                            |
+| `help`         | no       | Description shown under the field                                     |
+| `options`      | only `select` | Array of `{value, label}` choice objects                         |
+
+The backend coerces incoming UI values to the dataclass field types — `checkbox` to bool, `list` from `"a, b, c"` strings into `["a","b","c"]`, `number` parses to int/float, etc.
+
+### Storage
+
+Config is persisted at `<project_root>/.credentials/<name>_config.json` — same directory as credentials, with a `_config.json` suffix:
+
+```
+.credentials/
+├── discord.json              ← credential (token, etc.)
+├── discord_config.json       ← runtime config (mention_only, allowlists)
+├── github.json
+├── github_config.json
+└── ...
+```
+
+Unknown keys in older config files are silently dropped on load, and missing fields fall back to dataclass defaults — so adding/removing a field is one line and doesn't break existing installs.
+
+### Reading config from your client
+
+Use `craftos_integrations.load_config` inside `start_listening` or message handlers:
+
+```python
+from craftos_integrations import load_config
+
+async def _handle_message(self, data):
+    cfg = load_config("discord_config.json", DiscordConfig) or DiscordConfig()
+    if cfg.mention_only and not bot_was_mentioned:
+        return
+    ...
+```
+
+Reading fresh on each message keeps config changes effective without a restart.
+
+### Host-side facade
+
+Three async-friendly helpers on `craftos_integrations` parallel the credential ones:
+
+```python
+from craftos_integrations import (
+    get_config,         # current values as a plain dict (defaults if no file yet)
+    update_config,      # write new values; coerces per the schema
+    get_config_schema,  # the config_fields list, for rendering a settings form
+)
+
+get_config("discord")
+# → {"mention_only": False, "third_party_usernames": []}
+
+ok, msg = update_config("discord", {"mention_only": True, "third_party_usernames": "alice, bob"})
+# Backend coerces the string into ["alice", "bob"] and persists
+
+get_config_schema("discord")
+# → [{"key": "mention_only", "label": "Only when @-mentioned", "type": "checkbox", ...}, ...]
+```
+
+### Inline connect help (the `?` popover)
+
+Independent of `config_class`, handlers can declare a `connect_help: List[str]` for "where do I find these credentials" guidance shown in the connect modal:
+
+```python
+@register_handler(LINE.name)
+class LineHandler(IntegrationHandler):
+    ...
+    connect_help = [
+        "Open LINE Developers Console: developers.line.biz/console",
+        "Sign in with your LINE account",
+        "Create a Provider, then create a Messaging API channel inside it",
+        "Channel Secret → Basic settings tab → 'Channel secret' field",
+        "Channel Access Token → Messaging API tab → 'Issue' button (long-lived)",
+    ]
+```
+
+Steps surface to UI hosts via `get_metadata(integration)["connect_help"]` and are rendered as a numbered list when the user clicks the `?` icon in the connect dialog.
 
 ---
 
@@ -218,7 +340,7 @@ One file. Drop it in `craftos_integrations/integrations/<name>.py`. The autoload
 
 ```python
 # craftos_integrations/integrations/asana.py
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Tuple
 
 from .. import (
@@ -248,15 +370,36 @@ ASANA = IntegrationSpec(
 )
 
 
+@dataclass
+class AsanaConfig:
+    project_filter: List[str] = field(default_factory=list)
+
+
 @register_handler(ASANA.name)
 class AsanaHandler(IntegrationHandler):
     spec = ASANA
     display_name = "Asana"
     description = "Tasks and projects"
     auth_type = "token"
+    icon = "asana"                                              # Lucide icon name or frontend brand-SVG key
     fields = [
         {"key": "access_token", "label": "Personal Access Token",
          "placeholder": "1/12345...", "password": True},
+    ]
+
+    # Inline help shown in the connect modal's ``?`` popover
+    connect_help = [
+        "Open https://app.asana.com/0/my-apps",
+        "Click 'Create new token' → name it, copy the token",
+    ]
+
+    # Optional runtime config — schema-driven UI for post-connect knobs.
+    # Omit both attrs if your integration has no runtime settings.
+    config_class = AsanaConfig
+    config_fields = [
+        {"key": "project_filter", "label": "Watched projects", "type": "list",
+         "placeholder": "GID1, GID2",
+         "help": "Comma-separated Asana project GIDs. Empty = watch all."},
     ]
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
@@ -431,12 +574,21 @@ craftos_integrations/integrations/
 - `connect_interactive(integration, *, start_listener=True) -> (bool, str)`
 
 ### Metadata
-- `get_metadata(integration) -> dict | None` — `{id, name, description, auth_type, fields}`
+- `get_metadata(integration) -> dict | None`
+  - Shape: `{id, name, description, auth_type, fields, icon, has_config, config_fields, connect_help}`
+  - `has_config: bool` — True when the handler declared a `config_class`
+  - `config_fields: list[dict] | None` — the runtime-config render schema (None when no config)
+  - `connect_help: list[str] | None` — inline setup steps for the `?` popover
 - `list_metadata() -> list[dict]`
 - `integration_registry() -> dict[str, dict]`
 - `get_integration_info(integration) -> dict` (async; metadata + live `connected` + `accounts`)
 - `list_integrations() -> list[dict]` (async)
 - `parse_status_accounts(msg) -> list[dict]`
+
+### Per-integration runtime config (post-connect knobs)
+- `get_config(integration) -> dict | None` — current values; defaults when no file yet; `None` if no `config_class` declared
+- `update_config(integration, values: dict) -> (bool, str)` — coerces values per the schema, persists
+- `get_config_schema(integration) -> list[dict] | None` — the `config_fields` list, for rendering a form
 
 ### Sync flavors (for TUI / synchronous callers)
 - `list_integrations_sync()`
@@ -450,6 +602,12 @@ craftos_integrations/integrations/
 - `load_credential(filename, cls) -> instance | None`
 - `has_credential(filename) -> bool`
 - `remove_credential(filename) -> bool`
+
+### Config (same on-disk layout, `_config.json` suffix)
+- `save_config(filename, dataclass_instance)` — filename should end in `_config.json`
+- `load_config(filename, cls) -> instance | None`
+- `has_config(filename) -> bool`
+- `remove_config(filename) -> bool`
 
 ### OAuth helper
 - `OAuthFlow(*, client_id_key, client_secret_key, auth_url, token_url, userinfo_url=None, scopes, use_pkce=False, use_https=False, ...)`
@@ -487,23 +645,29 @@ Stop ordering is symmetric: `manager.stop_platform(...)` → `client.stop_listen
 
 ```
 <project_root>/.credentials/
-├── github.json
-├── google.json
+├── github.json               github_config.json            ← optional runtime-config sibling
+├── gmail.json                gmail_config.json
+├── google_calendar.json      …
+├── google_docs.json
+├── google_drive.json
+├── google_youtube.json
 ├── slack.json
-├── discord.json
-├── jira.json
+├── discord.json              discord_config.json
+├── jira.json                 jira_config.json
 ├── linkedin.json
 ├── notion.json
 ├── outlook.json
-├── twitter.json
-├── telegram_bot.json
-├── telegram_user.json
+├── twitter.json              twitter_config.json
+├── line.json                 line_config.json
+├── lark.json
+├── telegram_bot.json         telegram_bot_config.json
+├── telegram_user.json        telegram_user_config.json
 ├── whatsapp_business.json
-├── whatsapp_web.json
-└── whatsapp_wwebjs_auth/      # WhatsApp Web's wwebjs session
+├── whatsapp_web.json         whatsapp_web_config.json
+└── whatsapp_wwebjs_auth/     ← WhatsApp Web's wwebjs session (browser profile dir)
 ```
 
-Files are written with mode `0600`; the directory is `0700`. Format is the dataclass serialized via `asdict()`.
+Two file types live side-by-side: `<name>.json` holds the credential (token, OAuth refresh token, session) and `<name>_config.json` holds the optional post-connect runtime config (watch tags, allowlists, filters). Both are written with mode `0600`; the directory is `0700`. Format is the dataclass serialized via `asdict()`.
 
 ---
 
