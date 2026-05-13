@@ -31,7 +31,7 @@ MODEL_REGISTRY = {
     },
     "minimax": {
         InterfaceType.LLM: "MiniMax-Text-01",
-        InterfaceType.VLM: None,
+        InterfaceType.VLM: "MiniMax-VL-01",
         InterfaceType.EMBEDDING: None,
     },
     "deepseek": {
@@ -40,13 +40,20 @@ MODEL_REGISTRY = {
         InterfaceType.EMBEDDING: None,
     },
     "moonshot": {
-        InterfaceType.LLM: "moonshot-v1-8k",
-        InterfaceType.VLM: None,
+        InterfaceType.LLM: "kimi-k2.5",
+        InterfaceType.VLM: "moonshot-v1-8k-vision-preview",
         InterfaceType.EMBEDDING: None,
     },
     "grok": {
         InterfaceType.LLM: "grok-3",
         InterfaceType.VLM: "grok-4-0709",
+        InterfaceType.EMBEDDING: None,
+    },
+    "openrouter": {
+        # OpenRouter slugs follow `<provider>/<model>` format. Default to a Claude
+        # model so KV caching exercises the cache_control path on first use.
+        InterfaceType.LLM: "anthropic/claude-sonnet-4.5",
+        InterfaceType.VLM: "anthropic/claude-sonnet-4.5",
         InterfaceType.EMBEDDING: None,
     },
 }

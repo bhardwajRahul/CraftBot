@@ -109,6 +109,8 @@ class ProviderStep:
         ("byteplus", "BytePlus", "Kimi models"),
         ("anthropic", "Anthropic", "Claude models"),
         ("deepseek", "DeepSeek", "DeepSeek models"),
+        ("minimax", "MiniMax", "MiniMax models"),
+        ("moonshot", "Moonshot", "Moonshot models"),
         ("grok", "Grok (xAI)", "Grok models"),
         ("remote", "Ollama (Local)", "Self-hosted models"),
     ]
@@ -152,6 +154,8 @@ class ApiKeyStep:
         "byteplus": "BYTEPLUS_API_KEY",
         "anthropic": "ANTHROPIC_API_KEY",
         "deepseek": "DEEPSEEK_API_KEY",
+        "minimax": "MINIMAX_API_KEY",
+        "moonshot": "MOONSHOT_API_KEY",
         "grok": "XAI_API_KEY",
         "remote": None,  # Ollama uses a base URL, not an API key
     }
@@ -159,10 +163,17 @@ class ApiKeyStep:
     def __init__(self, provider: str = "openai"):
         self.provider = provider
 
+    # Providers that may be geo-restricted; support both direct and OpenRouter paths.
+    OPENROUTER_PROXIED = {"moonshot", "minimax"}
+    OPENROUTER_PROXIED_DISPLAY = {"moonshot": "Moonshot (Kimi)", "minimax": "MiniMax"}
+
     @property
     def title(self) -> str:
         if self.provider == "remote":
             return "Connect Ollama"
+        if self.provider in self.OPENROUTER_PROXIED:
+            display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
+            return f"Enter {display} API Key"
         return "Enter API Key"
 
     @property
@@ -171,6 +182,12 @@ class ApiKeyStep:
             return (
                 "Connect to your local Ollama instance.\n"
                 "If Ollama isn't installed yet, we'll help you set it up."
+            )
+        if self.provider in self.OPENROUTER_PROXIED:
+            display = self.OPENROUTER_PROXIED_DISPLAY.get(self.provider, self.provider)
+            return (
+                f"Enter your {display} API key. If your region doesn't have direct access, "
+                f"you can use OpenRouter as a fallback instead."
             )
         return "Enter your API key for the selected provider."
 
@@ -186,6 +203,13 @@ class ApiKeyStep:
             v = value.strip()
             if not (v.startswith("http://") or v.startswith("https://")):
                 return False, "Please enter a valid URL (e.g. http://localhost:11434)"
+            return True, None
+
+        # Proxied providers submit {api_key, via, or_model?} dict
+        if self.provider in self.OPENROUTER_PROXIED and isinstance(value, dict):
+            api_key = value.get("api_key", "")
+            if not api_key or len(str(api_key).strip()) < 10:
+                return False, "API key is required"
             return True, None
 
         if not value or not isinstance(value, str):

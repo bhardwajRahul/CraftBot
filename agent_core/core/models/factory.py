@@ -19,6 +19,54 @@ from agent_core.core.llm.google_gemini_client import GeminiClient
 
 logger = logging.getLogger(__name__)
 
+# Providers that should route through OpenRouter when OR is configured,
+# because their direct APIs are geo-restricted for most international users.
+_OPENROUTER_PROXIED = {"moonshot", "minimax"}
+
+# OpenRouter namespace per provider (for auto-slugging unknown model IDs).
+_OR_NAMESPACE = {
+    "moonshot": "moonshotai",
+    "minimax": "minimax",
+}
+
+# Explicit model-ID → OpenRouter slug overrides.
+_OR_MODEL_MAP: dict = {
+    "moonshot": {
+        "kimi-k2.5": "moonshotai/kimi-k2.5",
+        "moonshot-v1-8k": "moonshotai/moonshot-v1-8k",
+        "moonshot-v1-32k": "moonshotai/moonshot-v1-32k",
+        "moonshot-v1-128k": "moonshotai/moonshot-v1-128k",
+        "moonshot-v1-8k-vision-preview": "moonshotai/moonshot-v1-8k-vision-preview",
+    },
+    "minimax": {
+        "MiniMax-Text-01": "minimax/minimax-01",
+        "MiniMax-VL-01": "minimax/minimax-01",
+        "abab6.5s-chat": "minimax/abab6.5s-chat",
+    },
+}
+
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def _to_openrouter_slug(provider: str, model: str) -> str:
+    """Convert a provider-native model ID to its OpenRouter slug."""
+    if "/" in model:
+        return model
+    explicit = _OR_MODEL_MAP.get(provider, {}).get(model)
+    if explicit:
+        return explicit
+    namespace = _OR_NAMESPACE.get(provider, provider)
+    return f"{namespace}/{model}"
+
+
+def _get_openrouter_key() -> Optional[str]:
+    """Return the stored OpenRouter API key, or None if not configured."""
+    try:
+        from app.config import get_api_key
+        return get_api_key("openrouter") or None
+    except Exception:
+        return None
+
 
 def _resolve_ollama_model(requested: str, base_url: str) -> str:
     """Return `requested` if Ollama has it, otherwise return the first available model."""
@@ -65,7 +113,7 @@ class ModelFactory:
             Dictionary with provider context including client instances
         """
         # OpenAI-compatible providers that use OpenAI client with a custom base_url
-        _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok"}
+        _OPENAI_COMPAT = {"minimax", "deepseek", "moonshot", "grok", "openrouter"}
 
         if provider not in PROVIDER_CONFIG:
             raise ValueError(f"Unsupported provider: {provider}")
@@ -176,6 +224,29 @@ class ModelFactory:
             }
 
         if provider in _OPENAI_COMPAT:
+            # Moonshot and MiniMax are geo-restricted for most international users.
+            # Strategy:
+            #   1. If a direct API key is provided → use the provider's own endpoint.
+            #   2. If no direct key but OpenRouter is configured → proxy through OR.
+            #   3. Otherwise → raise / defer as usual.
+            if provider in _OPENROUTER_PROXIED and not api_key:
+                or_key = _get_openrouter_key()
+                if or_key:
+                    or_model = _to_openrouter_slug(provider, model)
+                    logger.info(
+                        f"[FACTORY] No direct key for {provider} — routing through OpenRouter as {or_model}"
+                    )
+                    return {
+                        "provider": "openrouter",
+                        "model": or_model,
+                        "client": OpenAI(api_key=or_key, base_url=_OPENROUTER_BASE_URL),
+                        "gemini_client": None,
+                        "remote_url": None,
+                        "byteplus": None,
+                        "anthropic_client": None,
+                        "initialized": True,
+                    }
+
             if not api_key:
                 if deferred:
                     return empty_context
