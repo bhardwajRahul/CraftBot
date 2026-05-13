@@ -43,6 +43,7 @@ python-dotenv
 scikit-learn
 watchdog
 telethon
+lark-oapi              # Lark Long-Connection / WebSocket listener
 croniter>=2.0.0        # Cron expression parsing for scheduler
 playwright             # WhatsApp Web browser automation
 opencv-python-headless # Video analysis keyframe extraction

@@ -1609,23 +1609,15 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
             account_id = data.get("account_id")
             await self._handle_integration_disconnect(integration_id, account_id)
 
-        # Jira settings handlers
-        elif msg_type == "jira_get_settings":
-            await self._handle_jira_get_settings()
+        # Generic per-integration config (replaces the old bespoke jira/github settings handlers)
+        elif msg_type == "integration_get_config":
+            integration_id = data.get("id")
+            await self._handle_integration_get_config(integration_id)
 
-        elif msg_type == "jira_update_settings":
-            watch_tag = data.get("watch_tag")
-            watch_labels = data.get("watch_labels")
-            await self._handle_jira_update_settings(watch_tag=watch_tag, watch_labels=watch_labels)
-
-        # GitHub settings handlers
-        elif msg_type == "github_get_settings":
-            await self._handle_github_get_settings()
-
-        elif msg_type == "github_update_settings":
-            watch_tag = data.get("watch_tag")
-            watch_repos = data.get("watch_repos")
-            await self._handle_github_update_settings(watch_tag=watch_tag, watch_repos=watch_repos)
+        elif msg_type == "integration_update_config":
+            integration_id = data.get("id")
+            values = data.get("values") or {}
+            await self._handle_integration_update_config(integration_id, values)
 
         # Living UI settings handlers
         elif msg_type == "living_ui_settings_get":
@@ -5010,132 +5002,82 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
     async def _handle_integration_disconnect(
         self, integration_id: str, account_id: Optional[str] = None
     ) -> None:
-        """Disconnect an integration account."""
-        try:
-            success, message = await disconnect_integration(integration_id, account_id)
-            await self._broadcast({
-                "type": "integration_disconnect_result",
-                "data": {
-                    "success": success,
-                    "message": message,
-                    "id": integration_id,
-                },
-            })
-            # Refresh the list on success
-            if success:
-                await self._handle_integration_list()
-        except Exception as e:
-            await self._broadcast({
-                "type": "integration_disconnect_result",
-                "data": {
-                    "success": False,
-                    "error": str(e),
-                    "id": integration_id,
-                },
-            })
+        """Disconnect an integration account.
 
-    # =====================
-    # Jira Settings
-    # =====================
+        Heavy teardown (e.g. WhatsApp bridge ``client.destroy()``) can take
+        20+ seconds. We don't want the WS message handler blocked on it —
+        the frontend would show stale "connected" state until the teardown
+        finishes. So we run the disconnect in a background task and let
+        this handler return immediately.
+        """
+        async def _do_disconnect() -> None:
+            try:
+                success, message = await disconnect_integration(integration_id, account_id)
+                await self._broadcast({
+                    "type": "integration_disconnect_result",
+                    "data": {
+                        "success": success,
+                        "message": message,
+                        "id": integration_id,
+                    },
+                })
+                if success:
+                    await self._handle_integration_list()
+            except Exception as e:
+                await self._broadcast({
+                    "type": "integration_disconnect_result",
+                    "data": {
+                        "success": False,
+                        "error": str(e),
+                        "id": integration_id,
+                    },
+                })
 
-    async def _handle_jira_get_settings(self) -> None:
-        """Get current Jira watch tag and labels."""
+        asyncio.create_task(_do_disconnect())
+
+    # ==========================
+    # Generic per-integration config
+    # ==========================
+    # Schema-driven: each integration declares ``config_class`` +
+    # ``config_fields`` on its handler. These two handlers work for
+    # every integration with no per-id branching.
+
+    async def _handle_integration_get_config(self, integration_id: str) -> None:
+        """Send the integration's config schema + current values to the frontend."""
         try:
-            from app.external_comms.credentials import has_credential, load_credential
-            from app.external_comms.platforms.jira import JiraCredential
-            if not has_credential("jira.json"):
-                await self._broadcast({"type": "jira_settings", "data": {"success": False, "error": "Not connected"}})
+            from craftos_integrations import get_config, get_config_schema, get_metadata
+            meta = get_metadata(integration_id)
+            if meta is None:
+                await self._broadcast({"type": "integration_config", "data": {
+                    "id": integration_id, "success": False, "error": "Unknown integration",
+                }})
                 return
-            cred = load_credential("jira.json", JiraCredential)
-            await self._broadcast({
-                "type": "jira_settings",
-                "data": {
-                    "success": True,
-                    "watch_tag": cred.watch_tag if cred else "",
-                    "watch_labels": cred.watch_labels if cred else [],
-                },
-            })
+            await self._broadcast({"type": "integration_config", "data": {
+                "id": integration_id,
+                "success": True,
+                "schema": get_config_schema(integration_id) or [],
+                "values": get_config(integration_id) or {},
+            }})
         except Exception as e:
-            await self._broadcast({"type": "jira_settings", "data": {"success": False, "error": str(e)}})
+            await self._broadcast({"type": "integration_config", "data": {
+                "id": integration_id, "success": False, "error": str(e),
+            }})
 
-    async def _handle_jira_update_settings(self, watch_tag=None, watch_labels=None) -> None:
-        """Update Jira watch tag and/or labels."""
+    async def _handle_integration_update_config(self, integration_id: str, values: dict) -> None:
+        """Persist new config values; return the post-write state so the UI can refresh."""
         try:
-            from app.external_comms.platforms.jira import JiraClient
-            client = JiraClient()
-            if not client.has_credentials():
-                await self._broadcast({"type": "jira_settings_result", "data": {"success": False, "error": "Not connected"}})
-                return
-            if watch_tag is not None:
-                client.set_watch_tag(watch_tag)
-            if watch_labels is not None:
-                if isinstance(watch_labels, str):
-                    watch_labels = [l.strip() for l in watch_labels.split(",") if l.strip()]
-                client.set_watch_labels(watch_labels)
-            # Return updated settings
-            cred = client._load()
-            await self._broadcast({
-                "type": "jira_settings_result",
-                "data": {
-                    "success": True,
-                    "watch_tag": cred.watch_tag,
-                    "watch_labels": cred.watch_labels,
-                    "message": "Jira settings updated",
-                },
-            })
+            from craftos_integrations import get_config, update_config
+            ok, message = update_config(integration_id, values or {})
+            await self._broadcast({"type": "integration_config_updated", "data": {
+                "id": integration_id,
+                "success": ok,
+                "message": message,
+                "values": get_config(integration_id) if ok else None,
+            }})
         except Exception as e:
-            await self._broadcast({"type": "jira_settings_result", "data": {"success": False, "error": str(e)}})
-
-    # =====================
-    # GitHub Settings
-    # =====================
-
-    async def _handle_github_get_settings(self) -> None:
-        """Get current GitHub watch tag and repos."""
-        try:
-            from app.external_comms.credentials import has_credential, load_credential
-            from app.external_comms.platforms.github import GitHubCredential
-            if not has_credential("github.json"):
-                await self._broadcast({"type": "github_settings", "data": {"success": False, "error": "Not connected"}})
-                return
-            cred = load_credential("github.json", GitHubCredential)
-            await self._broadcast({
-                "type": "github_settings",
-                "data": {
-                    "success": True,
-                    "watch_tag": cred.watch_tag if cred else "",
-                    "watch_repos": cred.watch_repos if cred else [],
-                },
-            })
-        except Exception as e:
-            await self._broadcast({"type": "github_settings", "data": {"success": False, "error": str(e)}})
-
-    async def _handle_github_update_settings(self, watch_tag=None, watch_repos=None) -> None:
-        """Update GitHub watch tag and/or repos."""
-        try:
-            from app.external_comms.platforms.github import GitHubClient
-            client = GitHubClient()
-            if not client.has_credentials():
-                await self._broadcast({"type": "github_settings_result", "data": {"success": False, "error": "Not connected"}})
-                return
-            if watch_tag is not None:
-                client.set_watch_tag(watch_tag)
-            if watch_repos is not None:
-                if isinstance(watch_repos, str):
-                    watch_repos = [r.strip() for r in watch_repos.split(",") if r.strip()]
-                client.set_watch_repos(watch_repos)
-            cred = client._load()
-            await self._broadcast({
-                "type": "github_settings_result",
-                "data": {
-                    "success": True,
-                    "watch_tag": cred.watch_tag,
-                    "watch_repos": cred.watch_repos,
-                    "message": "GitHub settings updated",
-                },
-            })
-        except Exception as e:
-            await self._broadcast({"type": "github_settings_result", "data": {"success": False, "error": str(e)}})
+            await self._broadcast({"type": "integration_config_updated", "data": {
+                "id": integration_id, "success": False, "error": str(e),
+            }})
 
     # ==========================
     # Living UI Settings Handlers
