@@ -405,8 +405,26 @@ async function handleCommand(line) {
           emitResponse(id, { success: false, error: "Client not ready" });
           return;
         }
-        const cleanNum = args.to.replace(/[\s\-\+\(\)]/g, "");
-        const chatId = args.to.includes("@") ? args.to : `${cleanNum}@c.us`;
+        let chatId;
+        if (args.to.includes("@")) {
+          chatId = args.to;
+        } else {
+          // Resolve number → canonical JID via the server. WhatsApp's
+          // LID-based protocol means a locally-constructed `${num}@c.us`
+          // can fail with "No LID for user" for contacts the local Store
+          // has never seen. getNumberId() primes the LID mapping and
+          // also returns null for numbers not on WhatsApp.
+          const cleanNum = args.to.replace(/[\s\-\+\(\)]/g, "");
+          const wid = await client.getNumberId(cleanNum);
+          if (!wid) {
+            emitResponse(id, {
+              success: false,
+              error: `Number ${cleanNum} is not on WhatsApp`,
+            });
+            return;
+          }
+          chatId = wid._serialized;
+        }
         const sent = await client.sendMessage(chatId, args.text);
         if (sent?.id?._serialized) ownSentIds.add(sent.id._serialized);
         emitResponse(id, {
@@ -471,25 +489,74 @@ async function handleCommand(line) {
       }
 
       case "search_contact": {
+        // Strategy: search chats first (fast, robust, covers the
+        // overwhelming case of "find someone I've messaged"). Only if
+        // that returns nothing do we fall back to filtering the full
+        // address book inside the browser page. We can't use
+        // client.getContacts() here — on large accounts the per-contact
+        // RPC serialization exceeds Puppeteer's protocolTimeout.
         if (!isReady) {
           emitResponse(id, { success: false, error: "Client not ready" });
           return;
         }
-        const contacts = await client.getContacts();
         const query = (args.name || "").toLowerCase();
-        const matches = contacts
-          .filter((c) => {
-            const name = (c.pushname || c.name || "").toLowerCase();
-            const number = c.number || "";
+
+        const chats = await client.getChats();
+        let matches = chats
+          .filter((ch) => {
+            const name = (ch.name || "").toLowerCase();
+            const number = (ch.id && ch.id.user) || "";
             return name.includes(query) || number.includes(query);
           })
           .slice(0, 20)
-          .map((c) => ({
-            id: c.id._serialized,
-            name: c.pushname || c.name || "",
-            number: c.number || "",
-            is_group: c.isGroup,
-          }));
+          .map((ch) => {
+            const serialized = ch.id._serialized;
+            // LID-based chats don't have a phone number — ch.id.user is
+            // the LID's user portion, which fails as a `to` value in
+            // send_message. Surface the full JID instead so the agent
+            // round-trips a valid send target through `number`.
+            const isLid = serialized.endsWith("@lid");
+            return {
+              id: serialized,
+              name: ch.name || "",
+              number: isLid ? serialized : ((ch.id && ch.id.user) || ""),
+              is_group: ch.isGroup,
+            };
+          });
+
+        if (matches.length === 0) {
+          // Fallback: reach into the page's Store. Filter runs in-page
+          // so only the matches cross the RPC boundary.
+          try {
+            matches = await client.pupPage.evaluate((q) => {
+              const query = (q || "").toLowerCase();
+              return window.Store.Contact.getModelsArray()
+                .filter((c) => {
+                  const name = (c.pushname || c.name || c.formattedName || "").toLowerCase();
+                  const number = (c.id && c.id.user) || "";
+                  return name.includes(query) || number.includes(query);
+                })
+                .slice(0, 20)
+                .map((c) => {
+                  const serialized = c.id._serialized;
+                  const isLid = serialized.endsWith("@lid");
+                  return {
+                    id: serialized,
+                    name: c.pushname || c.name || c.formattedName || "",
+                    number: isLid ? serialized : ((c.id && c.id.user) || ""),
+                    is_group: c.isGroup,
+                  };
+                });
+            }, args.name || "");
+          } catch (err) {
+            emitResponse(id, {
+              success: false,
+              error: `In-page contact filter failed: ${err.message}`,
+            });
+            return;
+          }
+        }
+
         emitResponse(id, { success: true, contacts: matches });
         break;
       }

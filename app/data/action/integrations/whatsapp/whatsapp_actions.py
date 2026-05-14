@@ -6,7 +6,7 @@ from agent_core import action
     description="Send a text message via WhatsApp Web.",
     action_sets=["whatsapp"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient phone number.", "example": "1234567890"},
+        "to": {"type": "string", "description": "Recipient phone number (e.g. '1234567890') OR the exact `number` / `id` value returned by search_whatsapp_contact (e.g. '185628603977847@lid'). Pass the value verbatim — do NOT strip the '@lid' or '@c.us' suffix.", "example": "1234567890"},
         "message": {"type": "string", "description": "Message text.", "example": "Hello!"},
     },
     output_schema={"status": {"type": "string", "example": "success"}},
@@ -27,7 +27,7 @@ async def send_whatsapp_web_text_message(input_data: dict) -> dict:
     description="Send a media message via WhatsApp Web.",
     action_sets=["whatsapp"],
     input_schema={
-        "to": {"type": "string", "description": "Recipient phone number.", "example": "1234567890"},
+        "to": {"type": "string", "description": "Recipient phone number (e.g. '1234567890') OR the exact `number` / `id` value returned by search_whatsapp_contact (e.g. '185628603977847@lid'). Pass the value verbatim — do NOT strip the '@lid' or '@c.us' suffix.", "example": "1234567890"},
         "media_path": {"type": "string", "description": "Local media path.", "example": "/path/to/img.jpg"},
         "caption": {"type": "string", "description": "Optional caption.", "example": "Caption"},
     },
