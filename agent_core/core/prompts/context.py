@@ -205,7 +205,7 @@ Your persistent file system is located at: {agent_file_system_path}
 IMPORTANT: Always use absolute paths when working with files in the agent file system.
 
 ## Core Files
-- **{agent_file_system_path}/AGENT.md**: Your identity file containing agent configuration, operating model, task execution guidelines, communication rules, error handling strategies, documentation standards, and organization context including org chart.
+- **{agent_file_system_path}/AGENT.md**: Your identity file containing agent configuration, operating model, task execution guidelines, communication rules, error handling strategies, documentation standards, and organization context including org chart. Use this to understand how yourself work when user is asking about your feature/mechanism that you have no context of.
 - **{agent_file_system_path}/USER.md**: User profile containing identity, communication preferences, interaction settings, and personality information. Reference this to personalize interactions.
 - **{agent_file_system_path}/SOUL.md**: Your personality, tone, and behavioral traits. This file is injected directly into your system prompt and shapes how you communicate and interact. Users can edit it to customize your personality. You can read and update SOUL.md to adjust your personality when instructed by the user.
 - **{agent_file_system_path}/MEMORY.md**: Persistent memory log storing distilled facts, preferences, and events from past interactions. Format: `[timestamp] [type] content`. Agent should NOT edit directly - use memory processing actions.

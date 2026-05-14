@@ -4,7 +4,7 @@ from agent_core import action
 @action(
     name="list_drive_files",
     description="List files in a Google Drive folder.",
-    action_sets=["google_workspace"],
+    action_sets=["google_drive"],
     input_schema={
         "folder_id": {"type": "string", "description": "Google Drive folder ID.", "example": "root"},
     },
@@ -22,7 +22,7 @@ def list_drive_files(input_data: dict) -> dict:
 @action(
     name="create_drive_folder",
     description="Create a new folder in Google Drive.",
-    action_sets=["google_workspace"],
+    action_sets=["google_drive"],
     input_schema={
         "name": {"type": "string", "description": "Folder name.", "example": "Project Files"},
         "parent_folder_id": {"type": "string", "description": "Optional parent folder ID.", "example": ""},
@@ -42,7 +42,7 @@ def create_drive_folder(input_data: dict) -> dict:
 @action(
     name="move_drive_file",
     description="Move a file to a different Google Drive folder.",
-    action_sets=["google_workspace"],
+    action_sets=["google_drive"],
     input_schema={
         "file_id": {"type": "string", "description": "File ID to move.", "example": "abc123"},
         "destination_folder_id": {"type": "string", "description": "Destination folder ID.", "example": "def456"},
@@ -64,7 +64,7 @@ def move_drive_file(input_data: dict) -> dict:
 @action(
     name="find_drive_folder_by_name",
     description="Find folder by name.",
-    action_sets=["google_workspace"],
+    action_sets=["google_drive"],
     input_schema={
         "name": {"type": "string", "description": "Name.", "example": "Folder"},
         "parent_folder_id": {"type": "string", "description": "Parent.", "example": "root"},
@@ -85,7 +85,7 @@ def find_drive_folder_by_name(input_data: dict) -> dict:
 @action(
     name="resolve_drive_folder_path",
     description="Resolve folder path.",
-    action_sets=["google_workspace"],
+    action_sets=["google_drive"],
     input_schema={
         "path": {"type": "string", "description": "Path.", "example": "Root/Folder"},
         "from_email": {"type": "string", "description": "Email.", "example": "me@example.com"},

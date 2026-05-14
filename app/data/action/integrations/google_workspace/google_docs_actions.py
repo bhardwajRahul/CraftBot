@@ -4,7 +4,7 @@ from agent_core import action
 @action(
     name="create_google_doc",
     description="Create a new blank Google Doc with the given title. Returns the document ID and editable URL.",
-    action_sets=["google_workspace"],
+    action_sets=["google_docs"],
     input_schema={
         "title": {"type": "string", "description": "Title for the new document.", "example": "Meeting Notes"},
     },
@@ -22,7 +22,7 @@ def create_google_doc(input_data: dict) -> dict:
 @action(
     name="get_google_doc",
     description="Fetch the full structured content of a Google Doc.",
-    action_sets=["google_workspace"],
+    action_sets=["google_docs"],
     input_schema={
         "document_id": {"type": "string", "description": "The Google Doc's document ID.", "example": "1abcDEF..."},
     },
@@ -40,7 +40,7 @@ def get_google_doc(input_data: dict) -> dict:
 @action(
     name="get_google_doc_text",
     description="Get a Google Doc as plain text. Returns title and the doc body flattened to a string.",
-    action_sets=["google_workspace"],
+    action_sets=["google_docs"],
     input_schema={
         "document_id": {"type": "string", "description": "The Google Doc's document ID.", "example": "1abcDEF..."},
     },
@@ -58,7 +58,7 @@ def get_google_doc_text(input_data: dict) -> dict:
 @action(
     name="append_to_google_doc",
     description="Append text to the end of a Google Doc.",
-    action_sets=["google_workspace"],
+    action_sets=["google_docs"],
     input_schema={
         "document_id": {"type": "string", "description": "The Google Doc's document ID.", "example": "1abcDEF..."},
         "text": {"type": "string", "description": "Text to append.", "example": "\\n\\nFollow-up: ..."},
@@ -78,7 +78,7 @@ def append_to_google_doc(input_data: dict) -> dict:
 @action(
     name="replace_google_doc_text",
     description="Find-and-replace across the entire Google Doc body. Returns the number of occurrences changed.",
-    action_sets=["google_workspace"],
+    action_sets=["google_docs"],
     input_schema={
         "document_id": {"type": "string", "description": "The Google Doc's document ID.", "example": "1abcDEF..."},
         "find": {"type": "string", "description": "Text to find.", "example": "TODO"},
@@ -102,7 +102,7 @@ def replace_google_doc_text(input_data: dict) -> dict:
 @action(
     name="list_google_docs",
     description="List Google Docs the user owns or has access to, most recent first.",
-    action_sets=["google_workspace"],
+    action_sets=["google_docs"],
     input_schema={
         "max_results": {"type": "integer", "description": "Max number of docs to return.", "example": 50},
     },
@@ -120,7 +120,7 @@ def list_google_docs(input_data: dict) -> dict:
 @action(
     name="search_google_docs",
     description="Search for Google Docs by title fragment.",
-    action_sets=["google_workspace"],
+    action_sets=["google_docs"],
     input_schema={
         "query": {"type": "string", "description": "Title fragment to search for.", "example": "Meeting"},
         "max_results": {"type": "integer", "description": "Max number of docs to return.", "example": 50},
@@ -140,7 +140,7 @@ def search_google_docs(input_data: dict) -> dict:
 @action(
     name="delete_google_doc",
     description="Move a Google Doc to the Drive trash.",
-    action_sets=["google_workspace"],
+    action_sets=["google_docs"],
     input_schema={
         "document_id": {"type": "string", "description": "The Google Doc's document ID.", "example": "1abcDEF..."},
     },

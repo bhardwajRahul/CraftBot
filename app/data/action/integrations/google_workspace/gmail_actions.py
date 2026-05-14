@@ -4,7 +4,7 @@ from agent_core import action
 @action(
     name="send_gmail",
     description="Send an email via Gmail.",
-    action_sets=["google_workspace"],
+    action_sets=["gmail"],
     input_schema={
         "to": {"type": "string", "description": "Recipient email address.", "example": "user@example.com"},
         "subject": {"type": "string", "description": "Email subject.", "example": "Meeting Follow-up"},
@@ -28,7 +28,7 @@ def send_gmail(input_data: dict) -> dict:
 @action(
     name="list_gmail",
     description="List recent emails from Gmail inbox.",
-    action_sets=["google_workspace"],
+    action_sets=["gmail"],
     input_schema={
         "count": {"type": "integer", "description": "Number of recent emails to list.", "example": 5},
     },
@@ -46,7 +46,7 @@ def list_gmail(input_data: dict) -> dict:
 @action(
     name="get_gmail",
     description="Get details of a specific Gmail message by ID.",
-    action_sets=["google_workspace"],
+    action_sets=["gmail"],
     input_schema={
         "message_id": {"type": "string", "description": "Gmail message ID.", "example": "18abc123def"},
         "full_body": {"type": "boolean", "description": "Whether to include full email body.", "example": False},
@@ -66,7 +66,7 @@ def get_gmail(input_data: dict) -> dict:
 @action(
     name="read_top_emails",
     description="Read the top N recent emails with details.",
-    action_sets=["google_workspace"],
+    action_sets=["gmail"],
     input_schema={
         "count": {"type": "integer", "description": "Number of emails to read.", "example": 5},
         "full_body": {"type": "boolean", "description": "Include full body text.", "example": False},
@@ -86,7 +86,7 @@ def read_top_emails(input_data: dict) -> dict:
 @action(
     name="send_google_workspace_email",
     description="Send email via Google Workspace.",
-    action_sets=["google_workspace"],
+    action_sets=["gmail"],
     input_schema={
         "to_email": {"type": "string", "description": "Recipient.", "example": "user@example.com"},
         "subject": {"type": "string", "description": "Subject.", "example": "Hello"},
@@ -112,7 +112,7 @@ def send_google_workspace_email(input_data: dict) -> dict:
 @action(
     name="read_recent_google_workspace_emails",
     description="Read recent emails.",
-    action_sets=["google_workspace"],
+    action_sets=["gmail"],
     input_schema={
         "n": {"type": "integer", "description": "Count.", "example": 5},
         "full_body": {"type": "boolean", "description": "Full body.", "example": False},
