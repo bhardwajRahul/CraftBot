@@ -167,6 +167,8 @@ Your job is to choose the best action from the action library and prepare the in
 ---
 
 {event_stream}
+
+{integration_essentials}
 """
 
 # Used in User Prompt when asking the model to select an action from the list of candidates

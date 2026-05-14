@@ -14,6 +14,7 @@ Your ops manual. Grep `## <topic>` to load what you need.
 add MCP server          → ## MCP
 add skill               → ## Skills
 connect platform        → ## Integrations
+use an integration      → ## Integrations  (and grep its INTEGRATION.md)
 switch model            → ## Models
 set API key             → ## Models
 generate document       → ## Documents
@@ -2784,6 +2785,23 @@ The built-in integrations cover the common 80%; MCP covers the long tail.
 - ALWAYS mask tokens in your replies. Don't echo back the full credential — use a prefix or a `...` truncation.
 - ALWAYS verify connection success before declaring victory.
 - NEVER write the token to memory, MEMORY.md, USER.md, or chat history beyond the immediate connect step. The handler stores it under `.credentials/<platform>.json` (see `## File System` for the do-not-print rule).
+
+### Using an integration during a task
+
+Connecting is one job; *using* an integration in a task is another. Each integration's source directory may carry an `INTEGRATION.md` reference doc — non-obvious workflows, identity formats, error meanings, and quirks that don't fit in action `input_schema` descriptions.
+
+Two location patterns (try the first; fall back to the second):
+- `craftos_integrations/integrations/<name>/INTEGRATION.md` — directory-style integrations (e.g. [whatsapp_web](craftos_integrations/integrations/whatsapp_web/INTEGRATION.md))
+- `craftos_integrations/integrations/<name>.md` — single-file integrations (e.g. [discord.md](craftos_integrations/integrations/discord.md), [gmail.md](craftos_integrations/integrations/gmail.md), [slack.md](craftos_integrations/integrations/slack.md))
+
+**Consult one before asking the user for input the integration could probably look up itself.** Common case: the user says "send a WhatsApp message to X" and you're tempted to ask for their own phone number — don't. The bridge already knows the logged-in user's identity. The INTEGRATION.md spells out which action returns it.
+
+Other times to grep an INTEGRATION.md:
+- An action returns an error you don't understand.
+- A workflow needs more than one action and you're unsure of the order or which fields to pass between them.
+- A field value looks unfamiliar (e.g. ends in `@lid`, `@c.us`, `@g.us`) and you're tempted to "clean it up" — these are real identity formats; pass them verbatim.
+
+If the file is missing for an integration you need, fall back to grepping the integration's source directory.
 
 ---
 

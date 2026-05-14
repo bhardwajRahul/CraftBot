@@ -10,8 +10,10 @@ Same per-service shape as ``gmail.py`` / ``google_calendar.py`` /
   - ``docs.googleapis.com/v1`` for document content (read/write structured)
   - ``drive.googleapis.com/v3`` for file-level ops (create/list/copy)
 The Docs scope ``auth/documents`` covers the docs API; we additionally
-request ``drive.file`` for app-created files (lets the integration manage
-docs it created without needing the full Drive scope).
+request the full ``auth/drive`` scope so list/search can find docs the
+user already owns (the narrower ``drive.file`` scope only sees files the
+integration itself created, which is a frequent source of "I can see the
+doc in Drive but the agent can't" complaints).
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ from ..helpers import Result, request as http_request
 from ..logger import get_logger
 from ._google_common import (
     DOCS_SCOPES,
+    DRIVE_SCOPES,
     GoogleApiClientMixin,
     GoogleCredential,
     make_google_oauth,
@@ -42,10 +45,12 @@ DOCS_API_BASE = "https://docs.googleapis.com/v1"
 DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 
 # Docs needs both the documents scope (read/write doc bodies) AND
-# drive.file (to create docs and find them by id afterwards).
-DOCS_AND_DRIVE_FILE_SCOPES = (
-    f"{DOCS_SCOPES} https://www.googleapis.com/auth/drive.file"
-)
+# the full Drive scope so list/search hits docs the user already owns
+# in their Drive — not just those created by this integration.
+# Trade-off: this is a Google "restricted" scope; the OAuth consent
+# screen shows an "unverified app" warning until the app is verified.
+# Matches the scope shape used by google_drive.py.
+DOCS_AND_DRIVE_SCOPES = f"{DOCS_SCOPES} {DRIVE_SCOPES}"
 
 
 GDOCS = IntegrationSpec(
@@ -69,7 +74,7 @@ class GoogleDocsHandler(IntegrationHandler):
     icon = "google_docs"
     fields: List = []
 
-    oauth = make_google_oauth(DOCS_AND_DRIVE_FILE_SCOPES)
+    oauth = make_google_oauth(DOCS_AND_DRIVE_SCOPES)
 
     async def login(self, args: List[str]) -> Tuple[bool, str]:
         return await run_google_login(self.spec, self.oauth, "Google Docs")

@@ -121,12 +121,30 @@ class ActionRouter:
                     "output_schema": act.output_schema
                 })
 
+        # Pull just-in-time guidance for any integrations the user named.
+        # No-ops to "" when nothing matches; never raises. See the helper
+        # in the host app — kept out of agent_core so the package stays
+        # integration-agnostic.
+        try:
+            from app.data.action.integrations._integration_essentials import (
+                get_essentials_for_message,
+            )
+            integration_essentials = get_essentials_for_message(query)
+            logger.info(
+                f"[ACTION] integration essentials: "
+                f"{len(integration_essentials)} chars injected"
+            )
+        except Exception as e:
+            logger.debug(f"[ACTION] integration essentials lookup failed: {e}")
+            integration_essentials = ""
+
         # Build the instruction prompt for the LLM
         full_prompt = SELECT_ACTION_PROMPT.format(
             event_stream=self.context_engine.get_event_stream(),
             memory_context=self.context_engine.get_memory_context(query),
             query=query,
             action_candidates=self._format_candidates(action_candidates),
+            integration_essentials=integration_essentials,
         )
 
         max_format_retries = 3
