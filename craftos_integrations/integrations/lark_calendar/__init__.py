@@ -1,8 +1,8 @@
-# -*- coding: utf-8 -*-
-"""Lark Calendar integration — events, scheduling, free/busy.
+﻿# -*- coding: utf-8 -*-
+"""Lark Calendar integration - events, scheduling, free/busy.
 
-Same Custom App as ``lark.py`` (messaging) and ``lark_drive.py`` — App ID +
-Secret + tenant_access_token — but registered as a sibling integration with
+Same Custom App as ``lark.py`` (messaging) and ``lark_drive.py`` - App ID +
+Secret + tenant_access_token - but registered as a sibling integration with
 its own credential file (``lark_calendar.json``) so it shows as an
 independent tile in the UI. Permissions are gated separately per service.
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -31,9 +31,9 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
-from ._lark_common import (
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
+from .._lark_common import (
     LARK_API_BASE,
     LarkCredential,
     make_headers,
@@ -51,9 +51,9 @@ LARK_CALENDAR = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(LARK_CALENDAR.name)
 class LarkCalendarHandler(IntegrationHandler):
@@ -64,9 +64,9 @@ class LarkCalendarHandler(IntegrationHandler):
     icon = "lark"
     connect_help = [
         "Use the same Custom App you created for /lark (or create one at open.larksuite.com/app)",
-        "Permissions & Scopes → enable: calendar:calendar (read-write) and calendar:calendar.event.attendee (for invites)",
-        "Version Management → Create Version → submit for tenant admin approval — required for new scopes to take effect",
-        "Credentials & Basic Info → copy App ID + App Secret and paste them below (same values as /lark)",
+        "Permissions & Scopes â†’ enable: calendar:calendar (read-write) and calendar:calendar.event.attendee (for invites)",
+        "Version Management â†’ Create Version â†’ submit for tenant admin approval - required for new scopes to take effect",
+        "Credentials & Basic Info â†’ copy App ID + App Secret and paste them below (same values as /lark)",
     ]
     fields = [
         {"key": "app_id", "label": "App ID",
@@ -106,9 +106,9 @@ class LarkCalendarHandler(IntegrationHandler):
         return True, f"Lark Calendar: Connected\n  - {cred.app_id}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class LarkCalendarClient(BasePlatformClient):
@@ -137,7 +137,7 @@ class LarkCalendarClient(BasePlatformClient):
         self._connected = True
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
-        return {"error": "Lark Calendar does not support send_message — use create_event"}
+        return {"error": "Lark Calendar does not support send_message - use create_event"}
 
     @property
     def supports_listening(self) -> bool:
@@ -198,7 +198,7 @@ class LarkCalendarClient(BasePlatformClient):
 
         ``with_video_meeting=True`` asks Lark to auto-generate a Lark Meeting
         URL and attach it. Attendees are added separately via
-        ``add_event_attendees`` after creation — Lark's create endpoint
+        ``add_event_attendees`` after creation - Lark's create endpoint
         doesn't accept attendees in the same body.
         """
         body: Dict[str, Any] = {
@@ -283,7 +283,7 @@ class LarkCalendarClient(BasePlatformClient):
         """Invite attendees to an event.
 
         Pass any combination of ``user_ids`` (Lark open_ids), ``emails``
-        (external attendees), and ``chat_ids`` (group chats — every member
+        (external attendees), and ``chat_ids`` (group chats - every member
         gets invited). Lark's API normalizes these into a single
         ``attendees`` list with per-entry ``type``.
         """
@@ -310,7 +310,7 @@ class LarkCalendarClient(BasePlatformClient):
                         start_time: int, end_time: int) -> Result:
         """Bulk free/busy query for a list of users over a time window.
 
-        Returns each user's busy intervals in the window — useful for
+        Returns each user's busy intervals in the window - useful for
         finding a meeting slot that works for everyone.
         """
         return http_request(

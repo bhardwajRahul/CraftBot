@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Twitter/X integration — handler + client + credential. OAuth 1.0a."""
+﻿# -*- coding: utf-8 -*-
+"""Twitter/X integration - handler + client + credential. OAuth 1.0a."""
 from __future__ import annotations
 
 import asyncio
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -27,8 +27,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, arequest, request as http_request
-from ..logger import get_logger
+from ...helpers import Result, arequest, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -49,7 +49,7 @@ class TwitterCredential:
 
 @dataclass
 class TwitterConfig:
-    """Runtime knobs separate from the credential — persisted as
+    """Runtime knobs separate from the credential - persisted as
     ``twitter_config.json``."""
     watch_tag: str = ""
 
@@ -63,7 +63,7 @@ TWITTER = IntegrationSpec(
 
 
 def _twitter_config_file() -> str:
-    """``twitter.json`` → ``twitter_config.json``."""
+    """``twitter.json`` â†’ ``twitter_config.json``."""
     stem = TWITTER.cred_file
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
@@ -103,9 +103,9 @@ def _oauth1_header(
     return f"OAuth {header_parts}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(TWITTER.name)
 class TwitterHandler(IntegrationHandler):
@@ -118,9 +118,9 @@ class TwitterHandler(IntegrationHandler):
         "Open developer.twitter.com/en/portal/dashboard",
         "Sign up for a developer account if you haven't (free tier works for posting)",
         "Create a Project, then a Standalone App inside it",
-        "App settings → User authentication settings → enable OAuth 1.0a with Read+Write",
-        "Keys and tokens tab → copy Consumer Key + Consumer Secret",
-        "Scroll down → Generate Access Token + Secret → copy both",
+        "App settings â†’ User authentication settings â†’ enable OAuth 1.0a with Read+Write",
+        "Keys and tokens tab â†’ copy Consumer Key + Consumer Secret",
+        "Scroll down â†’ Generate Access Token + Secret â†’ copy both",
     ]
     fields = [
         {"key": "api_key", "label": "Consumer Key", "placeholder": "Enter Consumer key", "password": True},
@@ -153,7 +153,7 @@ class TwitterHandler(IntegrationHandler):
         if "error" in result:
             return False, (
                 f"Twitter auth failed: {result['error']}. "
-                f"Check your API credentials.\nGet them from developer.x.com → Dashboard → Keys and tokens"
+                f"Check your API credentials.\nGet them from developer.x.com â†’ Dashboard â†’ Keys and tokens"
             )
         data = (result["result"] or {}).get("data", {})
 
@@ -171,7 +171,7 @@ class TwitterHandler(IntegrationHandler):
         if not has_credential(self.spec.cred_file):
             return False, "No Twitter credentials found."
         try:
-            from ..manager import get_external_comms_manager
+            from ...manager import get_external_comms_manager
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -192,9 +192,9 @@ class TwitterHandler(IntegrationHandler):
         return True, f"Twitter/X: Connected\n  - @{username}{tag_info}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class TwitterClient(BasePlatformClient):

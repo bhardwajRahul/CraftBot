@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
-"""YouTube — granular Google integration.
+﻿# -*- coding: utf-8 -*-
+"""YouTube - granular Google integration.
 
 Connect just YouTube (without granting Gmail/Calendar/Drive/Docs scopes)
 by clicking Connect on the YouTube card. Credential is saved to
 ``youtube.json``.
 
 Scopes used:
-  - ``youtube.readonly`` — list channels, fetch video metadata, search
-  - ``youtube.force-ssl`` — required for any write op (subscribe, comment,
+  - ``youtube.readonly`` - list channels, fetch video metadata, search
+  - ``youtube.force-ssl`` - required for any write op (subscribe, comment,
     rate, manage playlists). Same scope shape as the Workspace meta.
 
 The YouTube Data API v3 is the only surface used; everything goes through
@@ -17,16 +17,16 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
     register_client,
     register_handler,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
-from ._google_common import (
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
+from .._google_common import (
     YOUTUBE_SCOPES,
     GoogleApiClientMixin,
     GoogleCredential,
@@ -49,9 +49,9 @@ YOUTUBE = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Handler — auth flow only
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Handler - auth flow only
+# -----------------------------------------------------------------
 
 @register_handler(YOUTUBE.name)
 class YouTubeHandler(IntegrationHandler):
@@ -74,9 +74,9 @@ class YouTubeHandler(IntegrationHandler):
         return await run_google_status(self.spec, "YouTube")
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Client — YouTube REST methods (no listener)
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Client - YouTube REST methods (no listener)
+# -----------------------------------------------------------------
 
 @register_client
 class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
@@ -182,7 +182,7 @@ class YouTubeClient(GoogleApiClientMixin, BasePlatformClient):
 
     def unsubscribe(self, subscription_id: str) -> Result:
         """Remove a subscription. ``subscription_id`` is the id returned by
-        ``list_my_subscriptions`` (NOT the channel id — it's the subscription
+        ``list_my_subscriptions`` (NOT the channel id - it's the subscription
         relationship's own id)."""
         return http_request(
             "DELETE", f"{YOUTUBE_API_BASE}/subscriptions",

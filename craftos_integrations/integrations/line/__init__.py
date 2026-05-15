@@ -1,7 +1,7 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """LINE Messaging API integration.
 
-LINE delivers inbound messages via webhooks only — there is no long-poll
+LINE delivers inbound messages via webhooks only - there is no long-poll
 endpoint. The bot needs a public HTTPS URL registered in the LINE
 Developers console to receive messages, which a desktop agent cannot
 provide directly. This integration is therefore **send-only** out of the
@@ -9,10 +9,10 @@ box: ``send_message`` (push) and ``reply_message`` work; ``start_listening``
 is not supported.
 
 Credentials come from the LINE Developers console
-(https://developers.line.biz/console/) under your provider → Messaging
+(https://developers.line.biz/console/) under your provider â†’ Messaging
 API channel:
-    - Channel access token (long-lived) — for the Authorization header.
-    - Channel secret — used to verify webhook signatures (stored for
+    - Channel access token (long-lived) - for the Authorization header.
+    - Channel secret - used to verify webhook signatures (stored for
       future webhook-server use; not required for send-only).
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -32,8 +32,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -52,7 +52,7 @@ class LineCredential:
 class LineConfig:
     """Runtime knobs persisted to ``line_config.json``."""
     # When True, every outgoing push/multicast/broadcast is sent with
-    # ``notificationDisabled: true`` — recipients receive the message but
+    # ``notificationDisabled: true`` - recipients receive the message but
     # no push alert. Useful for bulk/automated sends that shouldn't wake
     # users up.
     notification_disabled: bool = False
@@ -71,14 +71,14 @@ LINE = IntegrationSpec(
 
 
 def _line_config_file() -> str:
-    """``line.json`` → ``line_config.json``."""
+    """``line.json`` â†’ ``line_config.json``."""
     stem = LINE.cred_file
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(LINE.name)
 class LineHandler(IntegrationHandler):
@@ -91,8 +91,8 @@ class LineHandler(IntegrationHandler):
         "Open LINE Developers Console: developers.line.biz/console",
         "Sign in with your LINE account",
         "Create a Provider, then create a Messaging API channel inside it",
-        "Channel Secret → Basic settings tab → 'Channel secret' field",
-        "Channel Access Token → Messaging API tab → 'Issue' button under 'Channel access token (long-lived)'",
+        "Channel Secret â†’ Basic settings tab â†’ 'Channel secret' field",
+        "Channel Access Token â†’ Messaging API tab â†’ 'Issue' button under 'Channel access token (long-lived)'",
     ]
     fields = [
         {"key": "channel_access_token", "label": "Channel Access Token",
@@ -114,8 +114,8 @@ class LineHandler(IntegrationHandler):
     async def login(self, args: List[str]) -> Tuple[bool, str]:
         if not args:
             return False, ("Usage: /line login <channel_access_token> [channel_secret]\n"
-                           "Get from https://developers.line.biz/console/ → "
-                           "Messaging API channel → Channel access token (long-lived).")
+                           "Get from https://developers.line.biz/console/ â†’ "
+                           "Messaging API channel â†’ Channel access token (long-lived).")
         token = args[0]
         secret = args[1] if len(args) > 1 else ""
 
@@ -141,7 +141,7 @@ class LineHandler(IntegrationHandler):
         if not has_credential(self.spec.cred_file):
             return False, "No LINE credentials found."
         try:
-            from ..manager import get_external_comms_manager
+            from ...manager import get_external_comms_manager
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -161,9 +161,9 @@ class LineHandler(IntegrationHandler):
         return True, f"LINE: Connected\n  - {name} ({ident})"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class LineClient(BasePlatformClient):

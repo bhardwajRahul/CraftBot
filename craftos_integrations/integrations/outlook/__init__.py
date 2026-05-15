@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Outlook integration — Microsoft Graph + OAuth (PKCE)."""
+﻿# -*- coding: utf-8 -*-
+"""Outlook integration - Microsoft Graph + OAuth (PKCE)."""
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, List, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -21,9 +21,9 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..config import ConfigStore
-from ..helpers import Result, arequest, request as http_request
-from ..logger import get_logger
+from ...config import ConfigStore
+from ...helpers import Result, arequest, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -52,9 +52,9 @@ OUTLOOK = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(OUTLOOK.name)
 class OutlookHandler(IntegrationHandler):
@@ -107,9 +107,9 @@ class OutlookHandler(IntegrationHandler):
         return True, f"Outlook: Connected\n  - {email}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class OutlookClient(BasePlatformClient):

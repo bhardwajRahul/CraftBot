@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Lark integration — bidirectional messaging.
+﻿# -*- coding: utf-8 -*-
+"""Lark integration - bidirectional messaging.
 
 Lark is ByteDance's enterprise messaging platform (the China-region twin
 ``Feishu`` shares the API; the only difference is the API host). This
@@ -38,7 +38,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -50,9 +50,9 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
-from ._lark_common import (
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
+from .._lark_common import (
     LARK_API_BASE,
     LarkCredential,
     make_headers,
@@ -70,9 +70,9 @@ LARK = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(LARK.name)
 class LarkHandler(IntegrationHandler):
@@ -83,14 +83,14 @@ class LarkHandler(IntegrationHandler):
     icon = "lark"
     connect_help = [
         "Open Lark Developer Console: open.larksuite.com/app and sign in",
-        "Create Custom App → give it a name",
-        "Add Features (left sidebar) → Bot → Add",
-        "Events & Callbacks → Event Configuration → Subscription Mode: select 'Receive callbacks through persistent connection'",
-        "Events & Callbacks → Event Configuration → Add Event: subscribe to 'im.message.receive_v1' (Receive Message) — without this, no DMs reach CraftBot",
-        "Events & Callbacks → Encryption Strategy: leave Encryption Key empty (this integration does not yet support encrypted events)",
-        "Permissions & Scopes → enable: im:message, im:message.p2p_msg, im:message.group_at_msg:readonly (the last is for group @-mentions and only appears after Bot is added)",
-        "Version Management → Create Version → submit for tenant admin approval — events do NOT flow until the version is Released",
-        "Credentials & Basic Info → copy App ID + App Secret and paste them below",
+        "Create Custom App â†’ give it a name",
+        "Add Features (left sidebar) â†’ Bot â†’ Add",
+        "Events & Callbacks â†’ Event Configuration â†’ Subscription Mode: select 'Receive callbacks through persistent connection'",
+        "Events & Callbacks â†’ Event Configuration â†’ Add Event: subscribe to 'im.message.receive_v1' (Receive Message) - without this, no DMs reach CraftBot",
+        "Events & Callbacks â†’ Encryption Strategy: leave Encryption Key empty (this integration does not yet support encrypted events)",
+        "Permissions & Scopes â†’ enable: im:message, im:message.p2p_msg, im:message.group_at_msg:readonly (the last is for group @-mentions and only appears after Bot is added)",
+        "Version Management â†’ Create Version â†’ submit for tenant admin approval - events do NOT flow until the version is Released",
+        "Credentials & Basic Info â†’ copy App ID + App Secret and paste them below",
     ]
     fields = [
         {"key": "app_id", "label": "App ID",
@@ -102,7 +102,7 @@ class LarkHandler(IntegrationHandler):
     async def login(self, args: List[str]) -> Tuple[bool, str]:
         if len(args) < 2:
             return False, ("Usage: /lark login <app_id> <app_secret>\n"
-                           "Get from open.larksuite.com/app → your app → Credentials tab.")
+                           "Get from open.larksuite.com/app â†’ your app â†’ Credentials tab.")
         app_id, app_secret = args[0], args[1]
 
         token, token_expires_at, err = validate_and_mint_token(app_id, app_secret)
@@ -149,9 +149,9 @@ class LarkHandler(IntegrationHandler):
         return True, f"Lark: Connected\n  - {name} ({ident})"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class LarkClient(BasePlatformClient):
@@ -189,7 +189,7 @@ class LarkClient(BasePlatformClient):
         self._connected = True
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
-        # Default to open_id for the receive_id type — covers DM-to-user case.
+        # Default to open_id for the receive_id type - covers DM-to-user case.
         # Callers that need group/email/user_id can use ``send_text`` directly.
         receive_id_type = kwargs.get("receive_id_type", "open_id")
         return self.send_text(recipient, text, receive_id_type=receive_id_type)
@@ -208,7 +208,7 @@ class LarkClient(BasePlatformClient):
         daemon thread and dispatch events back to the agent's asyncio loop
         via ``run_coroutine_threadsafe``.
 
-        Auto-reconnect is enabled in the SDK — we don't need our own retry
+        Auto-reconnect is enabled in the SDK - we don't need our own retry
         loop. If the network drops, the SDK reconnects with backoff.
         """
         if self._listening:
@@ -270,7 +270,7 @@ class LarkClient(BasePlatformClient):
         if not self._listening:
             return
         self._listening = False
-        # The SDK doesn't expose a clean ``stop()`` — the WS thread is a
+        # The SDK doesn't expose a clean ``stop()`` - the WS thread is a
         # daemon, so it dies when the agent process exits. For mid-run
         # disconnect (logout) we drop our reference; the SDK's reconnect
         # loop will keep running but no callback will fire (because
@@ -295,7 +295,7 @@ class LarkClient(BasePlatformClient):
 
         # Lark message ``content`` is a JSON-encoded string. Text messages:
         # ``{"text": "Hello"}``. Other types (post/image/file) we surface as
-        # the raw JSON for now — agent decides what to do with them.
+        # the raw JSON for now - agent decides what to do with them.
         msg_type = getattr(msg, "message_type", "") or ""
         raw_content = getattr(msg, "content", "") or ""
         text = ""
@@ -348,11 +348,11 @@ class LarkClient(BasePlatformClient):
         """Send a text message.
 
         ``receive_id_type`` selects how Lark interprets ``receive_id``:
-          - ``open_id`` — a user's open_id (default, returned by user lookup)
-          - ``user_id`` — Lark's enterprise user_id
-          - ``email`` — the user's company email
-          - ``chat_id`` — a group chat id (oc_...)
-          - ``union_id`` — cross-app stable id
+          - ``open_id`` - a user's open_id (default, returned by user lookup)
+          - ``user_id`` - Lark's enterprise user_id
+          - ``email`` - the user's company email
+          - ``chat_id`` - a group chat id (oc_...)
+          - ``union_id`` - cross-app stable id
 
         Lark's API quirk: the ``content`` field must be a JSON-encoded
         STRING, not an object. Hence the literal ``\"`` escaping below.

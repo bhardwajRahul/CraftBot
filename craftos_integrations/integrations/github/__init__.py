@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """GitHub integration — handler + client + credential.
 
-This is the canonical example of an integration file:
+This is the canonical example of an integration package:
   - one credential dataclass
   - one IntegrationSpec (referenced by both handler and client = composition)
   - one IntegrationHandler (auth: login/logout/status)
   - one BasePlatformClient (runtime: notification polling, REST API)
 
-To add another integration, copy this file and adapt.
+To add another integration, copy this folder and adapt.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -32,8 +32,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, arequest, request as http_request
-from ..logger import get_logger
+from ...helpers import Result, arequest, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -50,7 +50,7 @@ class GitHubCredential:
 
 @dataclass
 class GitHubConfig:
-    """Runtime knobs separate from the credential — loaded fresh from
+    """Runtime knobs separate from the credential - loaded fresh from
     ``github_config.json`` whenever the client reads them."""
     watch_tag: str = ""
     watch_repos: List[str] = field(default_factory=list)
@@ -65,15 +65,15 @@ GITHUB = IntegrationSpec(
 
 
 def _github_config_file() -> str:
-    """``github.json`` → ``github_config.json`` — must match the convention
+    """``github.json`` â†’ ``github_config.json`` - must match the convention
     in ``service._config_filename``."""
     stem = GITHUB.cred_file
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Handler — auth flows
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Handler - auth flows
+# -----------------------------------------------------------------
 
 @register_handler(GITHUB.name)
 class GitHubHandler(IntegrationHandler):
@@ -84,8 +84,8 @@ class GitHubHandler(IntegrationHandler):
     icon = "github"
     connect_help = [
         "Open GitHub: github.com/settings/tokens",
-        "Click 'Generate new token' → 'Generate new token (classic)'",
-        "Set scopes: at minimum 'repo' (issues + PRs) — add 'workflow' if needed",
+        "Click 'Generate new token' â†’ 'Generate new token (classic)'",
+        "Set scopes: at minimum 'repo' (issues + PRs) - add 'workflow' if needed",
         "Copy the ghp_... token before leaving the page (shown once)",
     ]
     fields = [
@@ -128,7 +128,7 @@ class GitHubHandler(IntegrationHandler):
         if not has_credential(self.spec.cred_file):
             return False, "No GitHub credentials found."
         try:
-            from ..manager import get_external_comms_manager
+            from ...manager import get_external_comms_manager
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -150,9 +150,9 @@ class GitHubHandler(IntegrationHandler):
         return True, f"GitHub: Connected\n  - @{username}{tag_info}{repos_info}"
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Client — runtime: REST API + notification polling
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Client - runtime: REST API + notification polling
+# -----------------------------------------------------------------
 
 @register_client
 class GitHubClient(BasePlatformClient):
@@ -258,9 +258,9 @@ class GitHubClient(BasePlatformClient):
         self._poll_task = asyncio.create_task(self._poll_loop())
 
         cfg = self._config()
-        tag_info = cfg.watch_tag or "(disabled — all events)"
+        tag_info = cfg.watch_tag or "(disabled - all events)"
         repos_info = ", ".join(cfg.watch_repos) if cfg.watch_repos else "(all repos)"
-        logger.info(f"[GITHUB] Poller started — tag: {tag_info} | repos: {repos_info}")
+        logger.info(f"[GITHUB] Poller started - tag: {tag_info} | repos: {repos_info}")
 
     async def stop_listening(self) -> None:
         if not self._listening:
@@ -288,7 +288,7 @@ class GitHubClient(BasePlatformClient):
             await asyncio.sleep(POLL_INTERVAL)
 
     def _check_notifications_sync(self) -> Optional[Dict[str, Any]]:
-        """Sync notification poll — returns ``{notifications, last_modified}`` or
+        """Sync notification poll - returns ``{notifications, last_modified}`` or
         ``None`` if 304/401/other status. Wrapped in ``asyncio.to_thread`` from
         ``_check_notifications`` to avoid anyio's task-tracking issues on
         Python 3.14 conda-forge.
@@ -344,7 +344,7 @@ class GitHubClient(BasePlatformClient):
             self._seen_ids = set(list(self._seen_ids)[-200:])
 
     def _fetch_comment_sync(self, url: str) -> tuple[str, str]:
-        """Sync per-comment fetch — returns ``(body, author)`` or ``("", "")``."""
+        """Sync per-comment fetch - returns ``(body, author)`` or ``("", "")``."""
         try:
             cr = httpx.get(url, headers=self._headers(), timeout=15.0)
             if cr.status_code != 200:

@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """WhatsApp Business Cloud API integration."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -16,8 +16,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -40,9 +40,9 @@ WAB = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(WAB.name)
 class WhatsAppBusinessHandler(IntegrationHandler):
@@ -54,8 +54,8 @@ class WhatsAppBusinessHandler(IntegrationHandler):
     connect_help = [
         "Open developers.facebook.com/apps and create an app (Business type)",
         "Add the 'WhatsApp' product to the app",
-        "WhatsApp → API Setup tab — copy the temporary access token (or generate a permanent one in System Users)",
-        "Same page — copy the Phone Number ID under 'From' phone number",
+        "WhatsApp â†’ API Setup tab - copy the temporary access token (or generate a permanent one in System Users)",
+        "Same page - copy the Phone Number ID under 'From' phone number",
         "Add a recipient phone number for testing on the same page",
     ]
     fields = [
@@ -95,9 +95,9 @@ class WhatsAppBusinessHandler(IntegrationHandler):
         return True, f"WhatsApp Business: Connected\n  - Phone Number ID: {pid}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class WhatsAppBusinessClient(BasePlatformClient):

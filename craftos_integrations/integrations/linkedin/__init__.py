@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""LinkedIn integration — handler (OAuth) + client."""
+﻿# -*- coding: utf-8 -*-
+"""LinkedIn integration - handler (OAuth) + client."""
 from __future__ import annotations
 
 import time
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -19,9 +19,9 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..config import ConfigStore
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
+from ...config import ConfigStore
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -52,9 +52,9 @@ def _encode_urn(urn: str) -> str:
     return quote(urn, safe="")
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(LINKEDIN.name)
 class LinkedInHandler(IntegrationHandler):
@@ -65,7 +65,7 @@ class LinkedInHandler(IntegrationHandler):
     icon = "linkedin"
     connect_help = [
         "Click 'Sign in with LinkedIn' below",
-        "A browser tab will open at linkedin.com/oauth — sign in with your LinkedIn account",
+        "A browser tab will open at linkedin.com/oauth - sign in with your LinkedIn account",
         "Approve the requested permissions (read profile, post on behalf, etc.)",
         "You'll be redirected back to CraftBot once consent completes",
     ]
@@ -111,9 +111,9 @@ class LinkedInHandler(IntegrationHandler):
         return True, f"LinkedIn: Connected\n  - {lid}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class LinkedInClient(BasePlatformClient):

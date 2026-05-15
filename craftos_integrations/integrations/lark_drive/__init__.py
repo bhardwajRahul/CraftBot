@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
-"""Lark Drive integration — list/upload/download/move files in Lark Drive.
+﻿# -*- coding: utf-8 -*-
+"""Lark Drive integration - list/upload/download/move files in Lark Drive.
 
 Lark Drive is the file-storage layer of the Lark workspace; it backs Lark
 Docs, Sheets, Bitable, etc. (those services reference Drive ``file_token``
 identifiers internally) but for this integration "Drive" means the user-
 visible files-and-folders surface only.
 
-Auth is the same Custom App that messaging uses — App ID + Secret minting a
-``tenant_access_token`` — but each Lark service is registered as its own
+Auth is the same Custom App that messaging uses - App ID + Secret minting a
+``tenant_access_token`` - but each Lark service is registered as its own
 sibling integration (matches the ``google_*.py`` pattern). The user pastes
 the same App ID + Secret here as in ``/lark login``; the only effective
 difference is the cred file (``lark_drive.json`` vs ``lark.json``) and the
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -32,9 +32,9 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
-from ._lark_common import (
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
+from .._lark_common import (
     LARK_API_BASE,
     LarkCredential,
     ensure_token,
@@ -53,9 +53,9 @@ LARK_DRIVE = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(LARK_DRIVE.name)
 class LarkDriveHandler(IntegrationHandler):
@@ -66,9 +66,9 @@ class LarkDriveHandler(IntegrationHandler):
     icon = "lark"
     connect_help = [
         "Use the same Custom App you created for /lark (or create one at open.larksuite.com/app)",
-        "Permissions & Scopes → enable: drive:drive (read-write) and drive:file:upload",
-        "Version Management → Create Version → submit for tenant admin approval — required for the new scopes to take effect",
-        "Credentials & Basic Info → copy App ID + App Secret and paste them below (same values as /lark)",
+        "Permissions & Scopes â†’ enable: drive:drive (read-write) and drive:file:upload",
+        "Version Management â†’ Create Version â†’ submit for tenant admin approval - required for the new scopes to take effect",
+        "Credentials & Basic Info â†’ copy App ID + App Secret and paste them below (same values as /lark)",
     ]
     fields = [
         {"key": "app_id", "label": "App ID",
@@ -108,9 +108,9 @@ class LarkDriveHandler(IntegrationHandler):
         return True, f"Lark Drive: Connected\n  - {cred.app_id}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class LarkDriveClient(BasePlatformClient):
@@ -200,7 +200,7 @@ class LarkDriveClient(BasePlatformClient):
         """Upload a file (max 20MB) to a folder.
 
         Lark's upload_all endpoint is multipart/form-data with the file size
-        as a form field — the SDK quirk is the size has to be a string. For
+        as a form field - the SDK quirk is the size has to be a string. For
         files >20MB the API requires the chunked upload_prepare/upload_part/
         upload_finish flow, which this method does NOT handle.
         """
@@ -237,7 +237,7 @@ class LarkDriveClient(BasePlatformClient):
         Returns ``{ok, result: {path, bytes_written}}`` on success.
         """
         token = ensure_token(self._load(), self.spec.cred_file)
-        # http_request returns parsed JSON — for a binary download we use
+        # http_request returns parsed JSON - for a binary download we use
         # transform=None and read the raw bytes off the response. Easier
         # path: do a raw httpx call here to avoid teaching the helper
         # about binary responses.

@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Discord voice helpers — underscore-prefixed so the autoloader skips it.
+﻿# -*- coding: utf-8 -*-
+"""Discord voice helpers - underscore-prefixed so the autoloader skips it.
 
 Loaded lazily by discord.py only when a voice method is invoked.
 Requires extra deps (discord.py[voice], PyNaCl, FFmpeg, openai).
@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
-from ..config import ConfigStore
+from ...config import ConfigStore
 
 try:
     import discord

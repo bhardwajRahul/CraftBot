@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Gmail — granular Google integration.
+﻿# -*- coding: utf-8 -*-
+"""Gmail - granular Google integration.
 
 A user can connect just Gmail (without granting Calendar/Drive/YouTube
 scopes) by clicking Connect on the Gmail card. The credential is saved
@@ -7,9 +7,9 @@ to ``gmail.json``. The "Google Workspace" meta-integration also writes
 to this file when it cascades, so they stay interchangeable.
 
 Structure mirrors any single-purpose integration in this package — see
-``github.py`` for the canonical shape. The Google-specific pieces
+``github/`` for the canonical shape. The Google-specific pieces
 (``GoogleCredential``, ``OAuthFlow`` factory, token refresh) live in
-``_google_common.py`` and are shared with the other per-service
+``../_google_common.py`` and are shared with the other per-service
 integrations (calendar / drive / docs / youtube).
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -35,9 +35,9 @@ from .. import (
     register_client,
     register_handler,
 )
-from ..helpers import Result, arequest, request as http_request
-from ..logger import get_logger
-from ._google_common import (
+from ...helpers import Result, arequest, request as http_request
+from ...logger import get_logger
+from .._google_common import (
     GMAIL_SCOPES,
     GoogleApiClientMixin,
     GoogleCredential,
@@ -68,26 +68,26 @@ class GmailConfig:
     # When True (default), every new INBOX message is forwarded to the
     # agent as a PlatformMessage. When False, the listener still polls
     # Gmail history (so send/read REST methods stay live) but does not
-    # dispatch incoming emails to the agent — Gmail becomes effectively
+    # dispatch incoming emails to the agent - Gmail becomes effectively
     # send-only.
     process_incoming: bool = True
 
 
 def _gmail_config_file() -> str:
-    """``gmail.json`` → ``gmail_config.json``."""
+    """``gmail.json`` â†’ ``gmail_config.json``."""
     stem = GMAIL.cred_file
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Handler — auth flow only
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Handler - auth flow only
+# -----------------------------------------------------------------
 
 @register_handler(GMAIL.name)
 class GmailHandler(IntegrationHandler):
     spec = GMAIL
     display_name = "Gmail"
-    description = "Email — read, search, and send"
+    description = "Email - read, search, and send"
     auth_type = "oauth"
     icon = "gmail"
     fields: List = []
@@ -96,7 +96,7 @@ class GmailHandler(IntegrationHandler):
     config_fields = [
         {"key": "process_incoming", "label": "Auto-process incoming emails", "type": "checkbox",
          "help": "When on, every new INBOX message is forwarded to the agent. "
-                 "Turn off to keep Gmail send-only — the agent ignores incoming mail."},
+                 "Turn off to keep Gmail send-only - the agent ignores incoming mail."},
     ]
 
     oauth = make_google_oauth(GMAIL_SCOPES)
@@ -111,9 +111,9 @@ class GmailHandler(IntegrationHandler):
         return await run_google_status(self.spec, "Gmail")
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Client — Gmail listener + REST methods
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Client - Gmail listener + REST methods
+# -----------------------------------------------------------------
 
 @register_client
 class GmailClient(GoogleApiClientMixin, BasePlatformClient):

@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Telegram Bot integration — handler (token + invite via shared bot) + client (long-polling)."""
+﻿# -*- coding: utf-8 -*-
+"""Telegram Bot integration - handler (token + invite via shared bot) + client (long-polling)."""
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import httpx
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -23,9 +23,9 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..config import ConfigStore
-from ..helpers import arequest, request as http_request
-from ..logger import get_logger
+from ...config import ConfigStore
+from ...helpers import arequest, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -59,7 +59,7 @@ async def _telegram_acall(url: str, *, json: Optional[Dict[str, Any]] = None,
 def _telegram_call_sync(url: str, *, json: Optional[Dict[str, Any]] = None,
                         params: Optional[Dict[str, Any]] = None,
                         timeout: float = 10.0) -> Dict[str, Any]:
-    """Sync variant — for use from login flows where async-context detection
+    """Sync variant - for use from login flows where async-context detection
     can be fragile. Wrap in ``asyncio.to_thread`` from coroutines."""
     method = "POST" if json is not None else "GET"
     result = http_request(method, url, json=json, params=params,
@@ -91,14 +91,14 @@ TELEGRAM_BOT = IntegrationSpec(
 
 
 def _telegram_bot_config_file() -> str:
-    """``telegram_bot.json`` → ``telegram_bot_config.json``."""
+    """``telegram_bot.json`` â†’ ``telegram_bot_config.json``."""
     stem = TELEGRAM_BOT.cred_file
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(TELEGRAM_BOT.name)
 class TelegramBotHandler(IntegrationHandler):
@@ -110,7 +110,7 @@ class TelegramBotHandler(IntegrationHandler):
     connect_help = [
         "Open Telegram and search for @BotFather",
         "Send /newbot and follow the prompts (pick a name, pick a username ending in 'bot')",
-        "BotFather replies with a token — copy the long string (numbers:letters)",
+        "BotFather replies with a token - copy the long string (numbers:letters)",
         "Paste it as the Bot Token below",
     ]
     fields = [
@@ -180,7 +180,7 @@ class TelegramBotHandler(IntegrationHandler):
         if not has_credential(self.spec.cred_file):
             return False, "No Telegram bot credentials found."
         try:
-            from ..manager import get_external_comms_manager
+            from ...manager import get_external_comms_manager
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -197,9 +197,9 @@ class TelegramBotHandler(IntegrationHandler):
         return True, f"Telegram bot: Connected\n  - {label}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class TelegramBotClient(BasePlatformClient):
@@ -307,7 +307,7 @@ class TelegramBotClient(BasePlatformClient):
                 await asyncio.sleep(RETRY_DELAY)
 
     def _poll_updates_sync(self) -> Dict[str, Any]:
-        """Sync long-poll — runs in a worker thread to bypass anyio."""
+        """Sync long-poll - runs in a worker thread to bypass anyio."""
         try:
             resp = httpx.get(self._api_url("getUpdates"), params={
                 "offset": self._poll_offset,

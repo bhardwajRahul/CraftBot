@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Slack integration — handler (token + OAuth invite) + client (poll listener)."""
+﻿# -*- coding: utf-8 -*-
+"""Slack integration - handler (token + OAuth invite) + client (poll listener)."""
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -21,8 +21,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import arequest, request as http_request
-from ..logger import get_logger
+from ...helpers import arequest, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -74,9 +74,9 @@ SLACK = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(SLACK.name)
 class SlackHandler(IntegrationHandler):
@@ -87,7 +87,7 @@ class SlackHandler(IntegrationHandler):
     icon = "slack"
     connect_help = [
         "Open api.slack.com/apps",
-        "Click 'Create New App' → 'From scratch', pick your workspace",
+        "Click 'Create New App' â†’ 'From scratch', pick your workspace",
         "Open 'OAuth & Permissions' in the left sidebar",
         "Add bot scopes: chat:write, channels:read, users:read (more as needed)",
         "Click 'Install to Workspace' at the top, then copy the 'Bot User OAuth Token' (xoxb-...)",
@@ -162,9 +162,9 @@ class SlackHandler(IntegrationHandler):
         return True, f"Slack: Connected\n  - {name} ({cred.workspace_id})"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class SlackClient(BasePlatformClient):

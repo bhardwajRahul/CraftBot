@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Discord integration — bot + user account + voice (lazy)."""
+﻿# -*- coding: utf-8 -*-
+"""Discord integration - bot + user account + voice (lazy)."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +12,7 @@ from urllib.parse import quote as _url_quote
 
 import httpx
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -25,8 +25,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -49,12 +49,12 @@ class DiscordConfig:
 
     Two-tier permission model:
 
-    * **Third-party** lists — users/roles whose messages reach the agent as
+    * **Third-party** lists - users/roles whose messages reach the agent as
       incoming external chatter (``raw.is_self_message = False``). Use for
       letting a server's general members @-the-bot for help.
-    * **Self** lists — users/roles whose messages reach the agent as if the
+    * **Self** lists - users/roles whose messages reach the agent as if the
       bot owner sent them (``raw.is_self_message = True``). Use for trusted
-      admins who can drive the bot like its owner — issue commands, change
+      admins who can drive the bot like its owner - issue commands, change
       settings, etc.
 
     Filter behaviour:
@@ -96,14 +96,14 @@ DISCORD = IntegrationSpec(
 
 
 def _discord_config_file() -> str:
-    """``discord.json`` → ``discord_config.json``."""
+    """``discord.json`` â†’ ``discord_config.json``."""
     stem = DISCORD.cred_file
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(DISCORD.name)
 class DiscordHandler(IntegrationHandler):
@@ -139,7 +139,7 @@ class DiscordHandler(IntegrationHandler):
                  "message's guild. DMs ignore this list. Leave empty to skip."},
         {"key": "self_usernames", "label": "Self users", "type": "list",
          "placeholder": "ahmad",
-         "help": "Their messages are treated as if you (the bot owner) sent them — used "
+         "help": "Their messages are treated as if you (the bot owner) sent them - used "
                  "for trusted admins who can drive the bot like its owner. Self matches "
                  "win over third-party matches. Leave empty to skip."},
         {"key": "self_role_names", "label": "Self roles", "type": "list",
@@ -180,7 +180,7 @@ class DiscordHandler(IntegrationHandler):
         if not has_credential(self.spec.cred_file):
             return False, "No Discord credentials found."
         try:
-            from ..manager import get_external_comms_manager
+            from ...manager import get_external_comms_manager
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -203,9 +203,9 @@ class DiscordHandler(IntegrationHandler):
         return True, f"Discord: Connected\n  - {name} ({ident})"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class DiscordClient(BasePlatformClient):
@@ -223,7 +223,7 @@ class DiscordClient(BasePlatformClient):
         self._last_sequence: Optional[int] = None
         self._bot_user_id: Optional[str] = None
         self._catchup_done: bool = False
-        # Lazy voice manager — created/started on first voice call, reused after
+        # Lazy voice manager - created/started on first voice call, reused after
         self._voice_mgr: Optional[Any] = None
         # Per-guild role-name cache: guild_id -> ({role_id: lower_name}, expires_at).
         # Refreshed on miss / 10-minute expiry so role renames or new roles
@@ -368,7 +368,7 @@ class DiscordClient(BasePlatformClient):
         elif op == 1:
             await ws.send(json.dumps({"op": 1, "d": self._last_sequence}))
         elif op in (7, 9):
-            # 7 = reconnect requested, 9 = invalid session — both close the socket
+            # 7 = reconnect requested, 9 = invalid session - both close the socket
             await ws.close()
 
     def _mark_catchup_done(self) -> None:
@@ -394,8 +394,8 @@ class DiscordClient(BasePlatformClient):
 
         # ----- Filter + classify -----
         # Two-stage:
-        #   1. mention_only — drop if bot wasn't @-mentioned (when enabled)
-        #   2. allowlists — try self first; if matched, classify as
+        #   1. mention_only - drop if bot wasn't @-mentioned (when enabled)
+        #   2. allowlists - try self first; if matched, classify as
         #      ``is_self_message=True``. Else try third-party. If neither
         #      list matches AND any list is configured, drop. If all four
         #      lists are empty, the filter is fully open (current default).
@@ -414,7 +414,7 @@ class DiscordClient(BasePlatformClient):
             (author.get("username") or "").lower(),
             (author.get("global_name") or "").lower(),
         }
-        # Resolve role names lazily — only fetch if any role list is set.
+        # Resolve role names lazily - only fetch if any role list is set.
         # Cached 10 min per guild, async helper takes a thread off the event loop.
         user_role_names: set = set()
         any_role_list = (cfg.self_role_names or cfg.third_party_role_names)
@@ -440,9 +440,9 @@ class DiscordClient(BasePlatformClient):
         elif any_tp and _matches(cfg.third_party_usernames, cfg.third_party_role_names):
             is_self_message = False
         elif any_self or any_tp:
-            # At least one list configured but the user matched none → drop.
+            # At least one list configured but the user matched none â†’ drop.
             return
-        # else: all four lists empty → fall through, classify as third-party.
+        # else: all four lists empty â†’ fall through, classify as third-party.
 
         author_name = author.get("username", "Unknown")
         channel_id = d.get("channel_id", "")
@@ -514,7 +514,7 @@ class DiscordClient(BasePlatformClient):
 
         Used by the listener's role-name allowlist filter. Falls back to an
         empty mapping on REST failure so a transient API blip doesn't lock
-        the agent out of its own messages — the role check is bypassed in
+        the agent out of its own messages - the role check is bypassed in
         that case (handled by the caller).
         """
         now = time.time()

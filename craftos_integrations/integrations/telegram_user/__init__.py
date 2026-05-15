@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Telegram MTProto (user account) integration — handler (phone+code+QR) + client (Telethon listener)."""
+﻿# -*- coding: utf-8 -*-
+"""Telegram MTProto (user account) integration - handler (phone+code+QR) + client (Telethon listener)."""
 from __future__ import annotations
 
 import asyncio
@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -24,8 +24,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..config import ConfigStore
-from ..logger import get_logger
+from ...config import ConfigStore
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -57,7 +57,7 @@ TELEGRAM_USER = IntegrationSpec(
 
 
 def _telegram_user_config_file() -> str:
-    """``telegram_user.json`` → ``telegram_user_config.json``."""
+    """``telegram_user.json`` â†’ ``telegram_user_config.json``."""
     stem = TELEGRAM_USER.cred_file
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
@@ -66,9 +66,9 @@ def _telegram_user_config_file() -> str:
 _pending_telegram_auth: Dict[str, Dict[str, Any]] = {}
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(TELEGRAM_USER.name)
 class TelegramUserHandler(IntegrationHandler):
@@ -83,7 +83,7 @@ class TelegramUserHandler(IntegrationHandler):
         "Fill the form (any app name/short name works) and submit",
         "Copy the 'api_id' (number) and 'api_hash' (long hex string)",
         "Set them as TELEGRAM_API_ID and TELEGRAM_API_HASH in CraftBot config",
-        "Then click Connect — you'll be prompted for your phone + login code",
+        "Then click Connect - you'll be prompted for your phone + login code",
     ]
     fields: List = []
 
@@ -125,7 +125,7 @@ class TelegramUserHandler(IntegrationHandler):
         if not api_id_str or not api_hash:
             return False, (
                 "Not configured. Set TELEGRAM_API_ID and TELEGRAM_API_HASH.\n"
-                "Get them from https://my.telegram.org → API development tools."
+                "Get them from https://my.telegram.org â†’ API development tools."
             )
         try:
             api_id = int(api_id_str)
@@ -134,7 +134,7 @@ class TelegramUserHandler(IntegrationHandler):
 
         from . import _telegram_mtproto as helpers
 
-        # Step 2: phone + code → complete
+        # Step 2: phone + code â†’ complete
         if len(args) >= 2:
             code = args[1]
             password = args[2] if len(args) > 2 else None
@@ -265,7 +265,7 @@ class TelegramUserHandler(IntegrationHandler):
         if not has_credential(self.spec.cred_file):
             return False, "No Telegram user credentials found."
         try:
-            from ..manager import get_external_comms_manager
+            from ...manager import get_external_comms_manager
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -282,9 +282,9 @@ class TelegramUserHandler(IntegrationHandler):
         return True, f"Telegram user: Connected\n  - {label}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class TelegramUserClient(BasePlatformClient):
@@ -671,9 +671,9 @@ class TelegramUserClient(BasePlatformClient):
                     "details": {"exception": type(e).__name__}}
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Helpers
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 def _get_display_name(entity) -> str:
     try:

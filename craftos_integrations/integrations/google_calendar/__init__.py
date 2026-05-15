@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
-"""Google Calendar — granular Google integration.
+﻿# -*- coding: utf-8 -*-
+"""Google Calendar - granular Google integration.
 
 Connect just Calendar (without granting Gmail/Drive/YouTube scopes) by
 clicking Connect on the Google Calendar card. Credential is saved to
 ``gcal.json``.
 
-See ``gmail.py`` for the canonical per-service shape — this file is
+See ``gmail.py`` for the canonical per-service shape - this file is
 structurally identical, differing only in scope, REST surface, and
 listener (Calendar doesn't poll for incoming messages).
 """
@@ -13,16 +13,16 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
     register_client,
     register_handler,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
-from ._google_common import (
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
+from .._google_common import (
     CALENDAR_SCOPES,
     GoogleApiClientMixin,
     GoogleCredential,
@@ -45,9 +45,9 @@ GCAL = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Handler — auth flow only
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Handler - auth flow only
+# -----------------------------------------------------------------
 
 @register_handler(GCAL.name)
 class GoogleCalendarHandler(IntegrationHandler):
@@ -70,9 +70,9 @@ class GoogleCalendarHandler(IntegrationHandler):
         return await run_google_status(self.spec, "Google Calendar")
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Client — Calendar REST methods (no listener; Calendar isn't push-based)
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Client - Calendar REST methods (no listener; Calendar isn't push-based)
+# -----------------------------------------------------------------
 
 @register_client
 class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
@@ -88,7 +88,7 @@ class GoogleCalendarClient(GoogleApiClientMixin, BasePlatformClient):
         self._connected = True
 
     async def send_message(self, recipient: str, text: str, **kwargs) -> Result:
-        return {"error": "Google Calendar does not support send_message — use create_meet_event"}
+        return {"error": "Google Calendar does not support send_message - use create_meet_event"}
 
     @property
     def supports_listening(self) -> bool:

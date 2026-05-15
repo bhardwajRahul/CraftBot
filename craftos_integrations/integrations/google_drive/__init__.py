@@ -1,11 +1,11 @@
-# -*- coding: utf-8 -*-
-"""Google Drive — granular Google integration.
+﻿# -*- coding: utf-8 -*-
+"""Google Drive - granular Google integration.
 
 Connect just Drive (without granting Gmail/Calendar/YouTube scopes) by
 clicking Connect on the Google Drive card. Credential is saved to
 ``gdrive.json``.
 
-Same per-service shape as ``gmail.py`` and ``google_calendar.py`` — the
+Same per-service shape as ``gmail.py`` and ``google_calendar.py`` - the
 only file-level differences are the scope, the API base URL, and the
 REST surface.
 """
@@ -13,16 +13,16 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
     register_client,
     register_handler,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
-from ._google_common import (
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
+from .._google_common import (
     DRIVE_SCOPES,
     GoogleApiClientMixin,
     GoogleCredential,
@@ -45,9 +45,9 @@ GDRIVE = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Handler — auth flow only
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Handler - auth flow only
+# -----------------------------------------------------------------
 
 @register_handler(GDRIVE.name)
 class GoogleDriveHandler(IntegrationHandler):
@@ -70,9 +70,9 @@ class GoogleDriveHandler(IntegrationHandler):
         return await run_google_status(self.spec, "Google Drive")
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Client — Drive REST methods (no listener; Drive isn't push-based)
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Client - Drive REST methods (no listener; Drive isn't push-based)
+# -----------------------------------------------------------------
 
 @register_client
 class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
@@ -109,7 +109,7 @@ class GoogleDriveClient(GoogleApiClientMixin, BasePlatformClient):
 
     def search_drive(self, query: str, max_results: int = 50,
                      fields: Optional[str] = None) -> Result:
-        """Free-form search across all of Drive — uses Drive's q-query syntax."""
+        """Free-form search across all of Drive - uses Drive's q-query syntax."""
         return http_request(
             "GET", f"{DRIVE_API_BASE}/files", headers=self._auth_header(),
             params={

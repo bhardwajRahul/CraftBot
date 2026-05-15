@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Jira integration — handler + client + credential."""
+﻿# -*- coding: utf-8 -*-
+"""Jira integration - handler + client + credential."""
 from __future__ import annotations
 
 import asyncio
@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -24,8 +24,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import Result, arequest, request as http_request
-from ..logger import get_logger
+from ...helpers import Result, arequest, request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -63,14 +63,14 @@ JIRA = IntegrationSpec(
 
 
 def _jira_config_file() -> str:
-    """``jira.json`` → ``jira_config.json``."""
+    """``jira.json`` â†’ ``jira_config.json``."""
     stem = JIRA.cred_file
     return (stem[:-5] if stem.endswith(".json") else stem) + "_config.json"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(JIRA.name)
 class JiraHandler(IntegrationHandler):
@@ -80,8 +80,8 @@ class JiraHandler(IntegrationHandler):
     auth_type = "token"
     icon = "jira"
     connect_help = [
-        "Domain → your Jira URL host (e.g. mycompany.atlassian.net)",
-        "Email → the address you log into Jira with",
+        "Domain â†’ your Jira URL host (e.g. mycompany.atlassian.net)",
+        "Email â†’ the address you log into Jira with",
         "API Token: open id.atlassian.com/manage-profile/security/api-tokens",
         "Click 'Create API token', label it (e.g. 'CraftBot'), copy the value",
     ]
@@ -130,7 +130,7 @@ class JiraHandler(IntegrationHandler):
             try:
                 r = httpx.get(url, headers=auth_headers, timeout=15, follow_redirects=True)
             except httpx.ConnectError:
-                return False, f"Cannot connect to https://{clean_domain} — check the domain name."
+                return False, f"Cannot connect to https://{clean_domain} - check the domain name."
             except Exception as e:
                 return False, f"Jira connection error: {e}"
             if r.status_code == 200:
@@ -164,7 +164,7 @@ class JiraHandler(IntegrationHandler):
         if not has_credential(self.spec.cred_file):
             return False, "No Jira credentials found."
         try:
-            from ..manager import get_external_comms_manager
+            from ...manager import get_external_comms_manager
             manager = get_external_comms_manager()
             if manager:
                 await manager.stop_platform(self.spec.platform_id)
@@ -186,9 +186,9 @@ class JiraHandler(IntegrationHandler):
         return True, f"Jira: Connected\n  - {email} ({domain}){label_info}"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class JiraClient(BasePlatformClient):
@@ -663,9 +663,9 @@ class JiraClient(BasePlatformClient):
         )
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # ADF helpers
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 def _text_to_adf(text: str) -> Dict[str, Any]:
     paragraphs = text.split("\n")

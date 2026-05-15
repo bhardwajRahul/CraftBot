@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
-"""Notion integration — handler (token + OAuth invite) + client."""
+﻿# -*- coding: utf-8 -*-
+"""Notion integration - handler (token + OAuth invite) + client."""
 from __future__ import annotations
 
 import json as _json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
@@ -18,8 +18,8 @@ from .. import (
     remove_credential,
     save_credential,
 )
-from ..helpers import request as http_request
-from ..logger import get_logger
+from ...helpers import request as http_request
+from ...logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -61,9 +61,9 @@ NOTION = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Handler
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_handler(NOTION.name)
 class NotionHandler(IntegrationHandler):
@@ -136,9 +136,9 @@ class NotionHandler(IntegrationHandler):
         return True, "Notion: Connected"
 
 
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 # Client
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
 
 @register_client
 class NotionClient(BasePlatformClient):

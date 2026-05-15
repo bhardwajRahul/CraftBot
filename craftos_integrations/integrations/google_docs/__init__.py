@@ -1,5 +1,5 @@
-# -*- coding: utf-8 -*-
-"""Google Docs — granular Google integration.
+﻿# -*- coding: utf-8 -*-
+"""Google Docs - granular Google integration.
 
 Connect just Docs (without granting Gmail/Calendar/Drive/YouTube scopes)
 by clicking Connect on the Google Docs card. Credential is saved to
@@ -19,16 +19,16 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from .. import (
+from ... import (
     BasePlatformClient,
     IntegrationHandler,
     IntegrationSpec,
     register_client,
     register_handler,
 )
-from ..helpers import Result, request as http_request
-from ..logger import get_logger
-from ._google_common import (
+from ...helpers import Result, request as http_request
+from ...logger import get_logger
+from .._google_common import (
     DOCS_SCOPES,
     DRIVE_SCOPES,
     GoogleApiClientMixin,
@@ -46,7 +46,7 @@ DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 
 # Docs needs both the documents scope (read/write doc bodies) AND
 # the full Drive scope so list/search hits docs the user already owns
-# in their Drive — not just those created by this integration.
+# in their Drive - not just those created by this integration.
 # Trade-off: this is a Google "restricted" scope; the OAuth consent
 # screen shows an "unverified app" warning until the app is verified.
 # Matches the scope shape used by google_drive.py.
@@ -61,9 +61,9 @@ GDOCS = IntegrationSpec(
 )
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Handler — auth flow only
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Handler - auth flow only
+# -----------------------------------------------------------------
 
 @register_handler(GDOCS.name)
 class GoogleDocsHandler(IntegrationHandler):
@@ -86,9 +86,9 @@ class GoogleDocsHandler(IntegrationHandler):
         return await run_google_status(self.spec, "Google Docs")
 
 
-# ════════════════════════════════════════════════════════════════════════
-# Client — Docs REST methods (no listener)
-# ════════════════════════════════════════════════════════════════════════
+# -----------------------------------------------------------------
+# Client - Docs REST methods (no listener)
+# -----------------------------------------------------------------
 
 @register_client
 class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
@@ -133,7 +133,7 @@ class GoogleDocsClient(GoogleApiClientMixin, BasePlatformClient):
         )
 
     def get_document_text(self, document_id: str) -> Result:
-        """Plain-text view of a document — flattens the body into a single string."""
+        """Plain-text view of a document - flattens the body into a single string."""
         result = self.get_document(document_id)
         if "error" in result:
             return result
