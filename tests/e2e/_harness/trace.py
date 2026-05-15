@@ -93,6 +93,70 @@ async def record_llm_calls(agent: AgentBase):
             agent.llm.generate_response_with_session_async = orig_session_gen
 
 
+@asynccontextmanager
+async def record_action_calls(agent: AgentBase):
+    """Capture every action the agent invokes during the ``with`` block.
+
+    Wraps ``agent.action_manager.execute_action`` and records the action's
+    name on ``agent._test_actions_called`` (a list, in invocation order).
+
+    Why not just walk the event stream? Task-mode action_start events are
+    written to the TASK stream, not the main stream. When a task ends,
+    the task stream's events are flushed and the stream may be removed
+    from ``event_stream_manager._task_streams``, so reading after the
+    fact misses everything inside the task. This spy captures every
+    invocation as it happens, so it survives the task lifecycle.
+    """
+    agent._test_actions_called = []
+    orig = agent.action_manager.execute_action
+
+    async def _spy(action, *args, **kwargs):
+        try:
+            agent._test_actions_called.append(action.name)
+        except Exception:
+            pass
+        return await orig(action, *args, **kwargs)
+
+    agent.action_manager.execute_action = _spy
+    try:
+        yield
+    finally:
+        agent.action_manager.execute_action = orig
+
+
+def actions_called(agent: AgentBase) -> list[str]:
+    """List of action names the agent invoked during the scenario, in
+    invocation order. Populated by ``record_action_calls`` (entered by
+    ``run_scenario``)."""
+    return list(getattr(agent, "_test_actions_called", []) or [])
+
+
+def assert_action_called(
+    agent: AgentBase,
+    expected: str,
+    *,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Pass iff ``expected`` is among the actions the agent invoked.
+
+    Always writes a per-test log file first (so the trace is on disk for
+    inspection whether the assertion passes or fails), prints the log
+    path, then asserts. The failure message includes the full trace and
+    the list of actions actually called.
+    """
+    called = actions_called(agent)
+    log_extra = {"actions_called": called, "expecting": expected}
+    if extra:
+        log_extra.update(extra)
+    log_path = save_trace_log(agent, extra=log_extra)
+    print(f"\nagent trace: {log_path}")
+    assert expected in called, (
+        f"agent never called {expected!r}. Actions called: {called}. "
+        f"trace: {log_path}\n\n"
+        + format_agent_trace(agent)
+    )
+
+
 def format_agent_trace(agent: AgentBase, *, limit_per_stream: int = 200) -> str:
     """Chronological, human-readable timeline of everything the agent
     recorded during the run.

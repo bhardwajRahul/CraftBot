@@ -16,7 +16,10 @@ Tests import from the package directly::
 from tests.e2e._harness.helpers import build_agent, run_scenario
 from tests.e2e._harness.trace import (
     TEST_LOG_DIR,
+    actions_called,
+    assert_action_called,
     format_agent_trace,
+    record_action_calls,
     record_llm_calls,
     save_trace_log,
 )
@@ -24,7 +27,10 @@ from tests.e2e._harness.trace import (
 __all__ = [
     "build_agent",
     "run_scenario",
+    "actions_called",
+    "assert_action_called",
     "format_agent_trace",
+    "record_action_calls",
     "record_llm_calls",
     "save_trace_log",
     "TEST_LOG_DIR",

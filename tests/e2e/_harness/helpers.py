@@ -43,7 +43,10 @@ ConfigRegistry.register_workspace_root(str(get_project_root()))
 from app.agent_base import AgentBase  # noqa: E402
 from craftos_integrations import get_client, list_connected  # noqa: E402
 
-from tests.e2e._harness.trace import record_llm_calls  # noqa: E402
+from tests.e2e._harness.trace import (  # noqa: E402
+    record_action_calls,
+    record_llm_calls,
+)
 
 
 def build_agent(*, require: list[str] | tuple[str, ...] = ()) -> AgentBase:
@@ -115,7 +118,7 @@ async def run_scenario(
     except Exception:
         pass
 
-    async with record_llm_calls(agent):
+    async with record_llm_calls(agent), record_action_calls(agent):
         # Poll each requested integration's session status until it's ready.
         bridge_statuses: dict[str, dict] = {}
         for pid in wait_for:
