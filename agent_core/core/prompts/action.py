@@ -383,6 +383,8 @@ Your job is to reason about the current state, then select the next action and p
 ---
 
 {event_stream}
+
+{integration_essentials}
 """
 
 # Compact action space prompt for GUI mode (UI-TARS style)
@@ -571,6 +573,8 @@ Reason briefly, then select the next action to complete this task efficiently.
 {memory_context}
 
 {event_stream}
+
+{integration_essentials}
 """
 
 __all__ = [
