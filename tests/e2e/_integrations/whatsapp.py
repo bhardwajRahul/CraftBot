@@ -14,11 +14,48 @@ on the returned list — no platform plumbing leaks into the test body.
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 
 from craftos_integrations import get_client
+from craftos_integrations.credentials_store import (
+    has_config,
+    load_config,
+    remove_config,
+    save_config,
+)
+from craftos_integrations.integrations.whatsapp_web import WhatsAppWebConfig
 
 
 INTEGRATION_ID = "whatsapp_web"
+_CONFIG_FILE = "whatsapp_web_config.json"
+
+
+@contextmanager
+def self_messages_only(enabled: bool):
+    """Temporarily set the WhatsApp Web ``self_messages_only`` config flag,
+    snapshotting + restoring the prior value on exit.
+
+    When ``True``, the integration drops every incoming message except
+    self-chat ones BEFORE the on-message callback fires — third-party
+    messages never reach the agent at all (see
+    ``WhatsAppWebClient._handle_incoming_message`` in
+    [whatsapp_web/__init__.py](craftos_integrations/integrations/whatsapp_web/__init__.py)).
+
+    Usage in tests::
+
+        with whatsapp.self_messages_only(True):
+            asyncio.run(_run_scenario(...))
+    """
+    original = load_config(_CONFIG_FILE, WhatsAppWebConfig)
+    existed_before = has_config(_CONFIG_FILE)
+    save_config(_CONFIG_FILE, WhatsAppWebConfig(self_messages_only=enabled))
+    try:
+        yield
+    finally:
+        if existed_before and original is not None:
+            save_config(_CONFIG_FILE, original)
+        else:
+            remove_config(_CONFIG_FILE)
 
 
 async def recent_messages_in_self_chat(

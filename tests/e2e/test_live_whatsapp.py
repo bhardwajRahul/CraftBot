@@ -32,6 +32,7 @@ import time
 import pytest
 
 from tests.e2e._harness import (
+    actions_called,
     assert_action_called,
     build_agent,
     format_agent_trace,
@@ -223,6 +224,200 @@ def test_live_whatsapp_searches_contact_by_name():
 
     asyncio.run(_run())
     assert_action_called(agent, "search_whatsapp_contact")
+
+
+# ---------------------------------------------------------------------------
+# Incoming-message scenarios — feed the agent a message that LOOKS like it
+# came from the wwebjs bridge's on-message callback, via the same
+# ``_handle_external_event`` entry the integration manager uses in
+# production. We do NOT actually receive a message from outside — we
+# synthesize the payload and inject it.
+# ---------------------------------------------------------------------------
+
+
+def test_live_whatsapp_self_message_from_phone_triggers_reply():
+    """REAL bridge flow: you send a WhatsApp from your phone to yourself.
+    The wwebjs bridge picks it up and emits an on-message event with
+    ``is_self_message=True``. The agent wraps it as a user instruction
+    (per [agent_base.py:2358](app/agent_base.py#L2358)) and replies.
+
+    The bridge SUPPRESSES its own bridge-initiated sends from the
+    on-message callback (see ownSentIds tracking in bridge.js) — so we
+    can't automate this. You have to send from your phone within 30s.
+    """
+    agent = build_agent(require=["whatsapp_web"])
+
+    async def _run():
+        await run_scenario(
+            agent,
+            wait_for_incoming=True,
+            wait_for=["whatsapp_web"],
+            incoming_prompt=(
+                ">>> SEND A WHATSAPP TO YOURSELF FROM YOUR PHONE NOW (30s).\n"
+                ">>> Any message body works — the agent will reply to it."
+            ),
+            incoming_filter=lambda p: bool(p.get("is_self_message")),
+            incoming_timeout=30.0,
+        )
+
+    # Explicit "default" config: self_messages_only=False. The user's
+    # production config may have this set to True (which is fine for daily
+    # use — it'd just drop third-party messages), so we force False here
+    # so the test is independent of host state. The context manager
+    # snapshots the current value and restores it on exit.
+    with whatsapp.self_messages_only(False):
+        asyncio.run(_run())
+    assert_action_called(agent, "send_whatsapp_web_text_message")
+
+
+def test_live_whatsapp_third_party_message_is_notification_only():
+    """REAL bridge flow: someone else WhatsApps you. The bridge picks it
+    up, on-message fires with ``is_self_message=False``, and per the
+    hardcoded routing rule at [agent_base.py:2213-2217](app/agent_base.py#L2213)
+    the chat handler short-circuits to ``_post_third_party_notification``
+    BEFORE any LLM call. The agent must NOT reply on the sender's
+    behalf.
+
+    Verifications:
+      - no LLM calls were made (third-party branch short-circuited),
+      - no actions were invoked (no react() ran),
+      - no outgoing whatsapp message landed in the owner's chat.
+    """
+    agent = build_agent(require=["whatsapp_web"])
+    test_start_ts = time.time() - 2
+
+    async def _run():
+        await run_scenario(
+            agent,
+            wait_for_incoming=True,
+            wait_for=["whatsapp_web"],
+            incoming_prompt=(
+                ">>> HAVE SOMEONE ELSE SEND YOU A WHATSAPP NOW (30s).\n"
+                ">>> Must be from a different account/contact. Any body works."
+            ),
+            incoming_filter=lambda p: p.get("is_self_message") is False,
+            incoming_timeout=30.0,
+        )
+        # Give the bridge a moment in case anything (wrongly) tried to send.
+        await asyncio.sleep(2.0)
+        return await whatsapp.recent_messages_in_self_chat(since_ts=test_start_ts)
+
+    # Force self_messages_only=False so third-party messages reach the
+    # agent. Without this, the user's production config (which may have
+    # self_messages_only=True) would drop the message at the integration
+    # layer and the test would time out waiting forever.
+    with whatsapp.self_messages_only(False):
+        sent_to_self = asyncio.run(_run())
+    invoked = actions_called(agent)
+    llm_calls = getattr(agent, "_test_llm_calls", []) or []
+
+    log_path = save_trace_log(
+        agent,
+        extra={
+            "llm_calls": len(llm_calls),
+            "actions_called": invoked,
+            "self_chat_sends_during_test": len(sent_to_self),
+        },
+    )
+    print(f"\nagent trace: {log_path}")
+
+    assert not llm_calls, (
+        f"agent invoked the LLM ({len(llm_calls)} call(s)) for a third-"
+        f"party whatsapp message. The notification-only branch should have "
+        f"short-circuited. trace: {log_path}\n\n"
+        + format_agent_trace(agent)
+    )
+    assert not invoked, (
+        f"agent invoked actions {invoked} for a third-party whatsapp "
+        f"message. Should be empty. trace: {log_path}"
+    )
+    assert not sent_to_self, (
+        f"agent sent {len(sent_to_self)} whatsapp message(s) in response "
+        f"to a third-party message. The notification-only rule was "
+        f"violated. trace: {log_path}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Incoming-message scenarios with ``self_messages_only=True`` config —
+# the integration-level filter at
+# [whatsapp_web/__init__.py:_handle_incoming_message](craftos_integrations/integrations/whatsapp_web/__init__.py)
+# drops non-self messages BEFORE the on-message callback. Self-messages
+# go through ``_handle_sent_message`` and aren't affected.
+# ---------------------------------------------------------------------------
+
+
+def test_live_whatsapp_self_only_config_still_processes_self_message():
+    """With ``self_messages_only=True`` the integration must still forward
+    self-messages to the agent — only third-party messages are dropped.
+    You send a whatsapp to yourself from your phone within 30s; agent
+    should still reply via ``send_whatsapp_web_text_message``.
+    """
+    agent = build_agent(require=["whatsapp_web"])
+
+    async def _run():
+        await run_scenario(
+            agent,
+            wait_for_incoming=True,
+            wait_for=["whatsapp_web"],
+            incoming_prompt=(
+                ">>> [self_messages_only=True] SEND A WHATSAPP TO YOURSELF "
+                "FROM YOUR PHONE NOW (30s). Agent should still reply."
+            ),
+            incoming_filter=lambda p: bool(p.get("is_self_message")),
+            incoming_timeout=30.0,
+        )
+
+    with whatsapp.self_messages_only(True):
+        asyncio.run(_run())
+
+    assert_action_called(agent, "send_whatsapp_web_text_message")
+
+
+def test_live_whatsapp_self_only_config_drops_third_party():
+    """With ``self_messages_only=True`` a third-party message must be
+    DROPPED at the integration layer — ``_handle_external_event`` is
+    never invoked, so the agent doesn't even see it. Differs from the
+    notification-only third-party test (which verifies the agent's
+    ROUTING when the event does reach it).
+
+    You ask someone else to whatsapp you within 30s. Test passes by
+    timing out (no matching event ever reaches the agent).
+    """
+    agent = build_agent(require=["whatsapp_web"])
+
+    async def _run():
+        await run_scenario(
+            agent,
+            expect_no_incoming=True,
+            wait_for=["whatsapp_web"],
+            incoming_prompt=(
+                ">>> [self_messages_only=True] HAVE SOMEONE ELSE WHATSAPP "
+                "YOU IN THE NEXT 30s. The integration must DROP it before "
+                "the agent sees it. Test passes by timing out silently."
+            ),
+            # We only care about third-party arrivals reaching the agent;
+            # ignore any self-messages that might also arrive in the window.
+            incoming_filter=lambda p: p.get("is_self_message") is False,
+            incoming_timeout=30.0,
+        )
+
+    with whatsapp.self_messages_only(True):
+        asyncio.run(_run())
+
+    # Belt-and-suspenders: no actions, no LLM, no outgoing message.
+    llm_calls = getattr(agent, "_test_llm_calls", []) or []
+    invoked = actions_called(agent)
+    log_path = save_trace_log(
+        agent,
+        extra={"llm_calls": len(llm_calls), "actions_called": invoked},
+    )
+    print(f"\nagent trace: {log_path}")
+    assert not llm_calls and not invoked, (
+        f"agent reacted to a message that should have been dropped at the "
+        f"integration layer. llm_calls={len(llm_calls)}, actions={invoked}. "
+        f"trace: {log_path}"
+    )
 
 
 def test_live_whatsapp_reads_self_chat_history():
