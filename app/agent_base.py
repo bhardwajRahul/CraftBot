@@ -1354,30 +1354,10 @@ class AgentBase:
 
         try:
             logger.debug("[REACT ERROR] Logging to event stream")
-            # Only fatal errors surface as a red chat bubble. Non-fatal cases
-            # (single parse failure, transient API hiccup, etc.) are still
-            # recorded into the event stream so the LLM sees the failure in
-            # its next-attempt context — but we use a non-error kind so the
-            # transformer does NOT emit a chat-visible ERROR_MESSAGE. The
-            # agent retries automatically via _create_new_trigger below, and
-            # the user shouldn't see a scary error bubble for something that
-            # is being silently recovered. If retries pile up past the
-            # consecutive-failure threshold, the fatal branch above kicks in
-            # and the rich classified message is surfaced then.
-            #
-            # NOTE: We must change the *kind* rather than just unsetting
-            # display_message — when kind is in ERROR_KINDS the transformer
-            # falls back to event.message (the full traceback) for the chat
-            # bubble, which would be even worse. Using kind="warning" follows
-            # the existing convention (see the limit-reached events earlier
-            # in this file) and the LLM still understands the entry from the
-            # message text.
-            log_kind = "error" if is_fatal_llm_error else "warning"
-            log_display_message = user_message if is_fatal_llm_error else None
             self.event_stream_manager.log(
-                log_kind,
+                "error",
                 f"[REACT] {type(error).__name__}: {error}\n{tb}",
-                display_message=log_display_message,
+                display_message=user_message,
                 task_id=session_to_use,
             )
             self.state_manager.bump_event_stream()
