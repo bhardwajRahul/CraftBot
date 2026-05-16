@@ -35,7 +35,7 @@ This will:
 
 ### Environment variables:
 
-- `TESLA_EMAIL` â€” Your Tesla account email
+- `TESLA_EMAIL` - Your Tesla account email
 - Token cached in `~/.tesla_cache.json`
 
 ## Multi-Vehicle Support
@@ -120,7 +120,7 @@ https://tesla-api.timdorr.com
 - All communication is between your machine and Tesla's servers only
 
 **What this skill does NOT do:**
-- Does not store your Tesla password â€” uses OAuth token flow
+- Does not store your Tesla password - uses OAuth token flow
 - Does not send credentials or vehicle data to any third party
 - Does not access any system resources beyond the Tesla API
 - Cannot be invoked autonomously by the agent (`disable-model-invocation: true`)
@@ -130,4 +130,4 @@ https://tesla-api.timdorr.com
 - Refresh token cached in `~/.tesla_cache.json` with restricted permissions
 - Tokens auto-refresh for ~30 days
 - Only use on trusted, personal machines
-- Review `scripts/tesla.py` before first use â€” it communicates only with Tesla's official API
+- Review `scripts/tesla.py` before first use - it communicates only with Tesla's official API

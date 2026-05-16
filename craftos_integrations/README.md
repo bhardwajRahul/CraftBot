@@ -527,21 +527,31 @@ class AsanaHandler(IntegrationHandler):
 | `interactive`            | QR code scan or phone code (e.g. WhatsApp Web, Telegram user)         |
 | `token_with_interactive` | Has both                                                              |
 
-### Helpers per file (only when needed)
+### Folder layout per integration
 
-If your integration needs supporting modules (e.g. WhatsApp Web's Node bridge, Telegram's MTProto auth helpers, Discord's voice manager), put them next to the integration file with an **underscore prefix** so the autoloader skips them:
+Each integration lives in its own folder under `integrations/`. The handler + client go in `__init__.py`, docs in `INTEGRATION.md`, and any supporting modules sit alongside with an **underscore prefix** so the autoloader skips them. Helpers shared by multiple integrations (`_google_common.py`, `_lark_common.py`) stay at the `integrations/` root.
 
 ```
 craftos_integrations/integrations/
-├── whatsapp_web/
+├── _google_common.py          ← shared by gmail / google_* (autoloader skips)
+├── _lark_common.py            ← shared by lark / lark_* (autoloader skips)
+├── discord/
 │   ├── __init__.py            ← handler + client
+│   ├── INTEGRATION.md
+│   └── _discord_voice.py      ← skipped by autoloader
+├── telegram_user/
+│   ├── __init__.py
+│   ├── INTEGRATION.md
+│   └── _telegram_mtproto.py   ← skipped by autoloader
+├── whatsapp_web/
+│   ├── __init__.py
+│   ├── INTEGRATION.md
 │   ├── _bridge_client.py      ← skipped by autoloader
 │   ├── bridge.js              ← Node sidecar
 │   └── package.json
-├── telegram_user.py
-├── _telegram_mtproto.py       ← skipped by autoloader
-├── discord.py
-└── _discord_voice.py          ← skipped by autoloader
+├── github/
+│   └── __init__.py
+└── ... (one folder per integration)
 ```
 
 ---

@@ -321,6 +321,13 @@ class WhatsAppWebClient(BasePlatformClient):
 
     async def start_listening(self, callback) -> None:
         if self._listening:
+            # Already wired to the bridge — just point at the new callback.
+            # Lets a new integration manager rewire onto a still-running
+            # bridge (e.g. between test_live tests) without tearing down
+            # and reattaching the wwebjs Playwright session. Production
+            # only calls start_listening once at boot, so this is a no-op
+            # there.
+            self._message_callback = callback
             return
         self._cred = None
         bridge = self._get_bridge()

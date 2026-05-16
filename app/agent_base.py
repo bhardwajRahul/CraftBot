@@ -3170,52 +3170,55 @@ class AgentBase:
     # Lifecycle
     # =====================================
 
-    async def run(
-        self,
-        *,
-        provider: str | None = None,
-        api_key: str = "",
-        base_url: str | None = None,
-        interface_mode: str = "tui",
-    ) -> None:
-        """
-        Launch the interactive loop for the agent.
+    async def boot(self, *, browser_ui, verbose: bool = True) -> None:
+        """Run the full production startup sequence except the UI loop.
+
+        Called from ``run()`` before the interactive interface starts.
+        Also called directly by the e2e test harness so tests get the
+        exact same setup as production without blocking on ``TUI/CLI/Browser``
+        interactive loops.
+
+        Steps:
+          1. Config watcher (hot-reload of settings.json)
+          2. MCP client + tool registration
+          3. Skills system
+          4. Usage reporter background flush
+          5. Integration manager (whatsapp_web, gmail, slack, etc.)
+          6. Optional memory processing on startup
+          7. Scheduler initialization + start
+          8. Resume triggers for tasks restored from previous session
 
         Args:
-            provider: Optional provider override passed to the interface before
-                chat starts; defaults to the provider configured during
-                initialization.
-            api_key: Optional API key presented in the interface for convenience.
-            base_url: Optional base URL for the provider.
-            interface_mode: "tui" for Textual interface, "cli" for command line.
+            verbose: When True, print human-readable per-step progress
+                (the same format ``app/main.py`` shows on app launch).
+                Tests pass False to keep output clean.
         """
-        # Check if browser startup UI is active
-        browser_ui = os.getenv("BROWSER_STARTUP_UI", "0") == "1"
 
-        def print_startup_step(step: int, total: int, message: str):
-            """Print a startup step in the appropriate format."""
+        def step(step_num: int, total: int, message: str) -> None:
+            if not verbose:
+                return
             if browser_ui:
                 # Browser mode: formatted with alignment and checkmark
-                prefix = f"  [{step:>2}/{total}]"
+                prefix = f"  [{step_num:>2}/{total}]"
                 step_width = 45
                 padded_msg = f"{message}...".ljust(step_width - len(prefix))
                 print(f"{prefix} {padded_msg}✓", flush=True)
             else:
                 # CLI mode: simple format
-                print(f"[{step}/{total}] {message}...")
+                print(f"[{step_num}/{total}] {message}...")
 
         # Startup progress messages
-        print_startup_step(3, 7, "Initializing agent")
+        step(3, 7, "Initializing agent")
 
         # Initialize settings manager and config watcher for hot-reload
         await self._initialize_config_watcher()
 
         # Initialize MCP client and register tools
-        print_startup_step(4, 7, "Connecting to MCP servers")
+        step(4, 7, "Connecting to MCP servers")
         await self._initialize_mcp()
 
         # Initialize skills system
-        print_startup_step(5, 7, "Loading skills")
+        step(5, 7, "Loading skills")
         await self._initialize_skills()
 
         # Start usage reporter background flush
@@ -3224,7 +3227,7 @@ class AgentBase:
         self._usage_reporter.start_background_flush()
 
         # Configure integrations + start external comms manager
-        print_startup_step(6, 7, "Initializing integrations")
+        step(6, 7, "Initializing integrations")
         await self._initialize_external_libraries()
 
         # Process unprocessed events into memory at startup (if enabled)
@@ -3232,7 +3235,7 @@ class AgentBase:
             await self._process_memory_at_startup()
 
         # Initialize and start the scheduler (handles memory processing and other periodic tasks)
-        print_startup_step(7, 7, "Starting scheduler")
+        step(7, 7, "Starting scheduler")
         scheduler_config_path = PROJECT_ROOT / "app" / "config" / "scheduler_config.json"
         await self.scheduler.initialize(
             config_path=scheduler_config_path,
@@ -3249,6 +3252,32 @@ class AgentBase:
 
         # Resume triggers for tasks restored from previous session
         await self._schedule_restored_task_triggers()
+
+    async def run(
+        self,
+        *,
+        provider: str | None = None,
+        api_key: str = "",
+        base_url: str | None = None,
+        interface_mode: str = "tui",
+    ) -> None:
+        """
+        Launch the interactive loop for the agent.
+
+        Performs the full production startup via ``boot()``, then enters
+        the chosen interactive interface.
+
+        Args:
+            provider: Optional provider override passed to the interface before
+                chat starts; defaults to the provider configured during
+                initialization.
+            api_key: Optional API key presented in the interface for convenience.
+            base_url: Optional base URL for the provider.
+            interface_mode: "tui" for Textual interface, "cli" for command line.
+        """
+        browser_ui = os.getenv("BROWSER_STARTUP_UI", "0") == "1"
+
+        await self.boot(browser_ui=browser_ui)
 
         # Startup complete (only print in CLI mode, browser mode handles this in run.py)
         if not browser_ui:

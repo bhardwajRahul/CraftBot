@@ -83,12 +83,26 @@ def _shape_result(
     fail_message: str,
 ) -> Dict[str, Any]:
     """Translate a client return value into the action response envelope."""
-    if unwrap_envelope and isinstance(raw, dict) and "ok" in raw:
-        if raw["ok"]:
+    if unwrap_envelope and isinstance(raw, dict):
+        # Success envelope: {"ok": True, "result": ...}
+        if raw.get("ok") is True:
             if success_message:
                 return {"status": "success", "message": success_message}
             return {"status": "success", "result": raw.get("result", raw)}
-        return {"status": "error", "message": raw.get("error", fail_message)}
+        # Explicit failure envelope: {"ok": False, "error": ...}
+        if raw.get("ok") is False:
+            return {"status": "error", "message": raw.get("error", fail_message)}
+        # Implicit failure envelope from craftos_integrations.helpers.request:
+        # 4xx/5xx HTTP responses (and caught exceptions) return
+        # {"error": "API error: 403", "details": "..."} with NO "ok" key.
+        # Without this branch, the next clauses fall through and wrap the
+        # error as {"status": "success"}, hiding the failure from the agent.
+        if "error" in raw:
+            return {
+                "status": "error",
+                "message": raw.get("error", fail_message),
+                "details": raw.get("details"),
+            }
     if success_message and isinstance(raw, dict) and raw.get("status") == "error":
         return {"status": "error", "message": raw.get("message") or raw.get("error", fail_message)}
     if success_message:
