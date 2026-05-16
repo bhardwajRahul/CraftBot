@@ -1356,7 +1356,7 @@ class AgentBase:
             logger.debug("[REACT ERROR] Logging to event stream")
             self.event_stream_manager.log(
                 "error",
-                f"[REACT] {type(error).__name__}: {error}\n{tb}",
+                f"[REACT] {type(error).__name__}: {user_message}",
                 display_message=user_message,
                 task_id=session_to_use,
             )
