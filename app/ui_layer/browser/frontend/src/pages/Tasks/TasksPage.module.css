@@ -329,6 +329,63 @@
   color: var(--color-primary-hover);
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+   Todo List Display (task_update_todos action)
+   ───────────────────────────────────────────────────────────────────── */
+
+.todoItems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.todoItem {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  background: transparent;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  line-height: var(--leading-normal);
+}
+
+.todoIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+
+.todoContent {
+  flex: 1;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.todoCompleted .todoIcon {
+  color: var(--text-muted);
+}
+
+.todoCompleted .todoContent {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.todoInProgress .todoIcon {
+  color: var(--color-primary);
+}
+
+.todoInProgress .todoContent {
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
 /* Reasoning item - minimal styling, no icon */
 .reasoningItem {
   color: var(--text-muted);

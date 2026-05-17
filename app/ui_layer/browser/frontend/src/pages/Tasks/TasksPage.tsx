@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, ArrowLeft, Reply, Plus } from 'lucide-react'
+import { ChevronRight, XCircle, ArrowLeft, Reply, Plus, Square, CheckSquare } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
 import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
@@ -276,6 +276,103 @@ function JsonDisplay({ content }: { content: string }) {
     <dl className={styles.detailList}>
       <JsonViewer data={parsed} />
     </dl>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Todo List Display (for task_update_todos action)
+// ─────────────────────────────────────────────────────────────────────
+
+type TodoStatus = 'pending' | 'in_progress' | 'completed' | string
+
+interface TodoEntry {
+  content: string
+  status: TodoStatus
+}
+
+function extractTodos(content: string): TodoEntry[] | null {
+  // First try the standard parser
+  const parsed = parsePythonDict(content)
+  const raw = (parsed as Record<string, unknown>)?.todos
+
+  // The parsePythonDict helper currently stores arrays as the raw "[...]"
+  // string slice, so try to recover real objects either from a real array
+  // or by parsing the array string as JSON / a small Python-literal subset.
+  let items: unknown[] | null = null
+
+  if (Array.isArray(raw)) {
+    items = raw
+  } else if (typeof raw === 'string') {
+    items = tryParseArrayLiteral(raw)
+  }
+
+  if (!items) return null
+
+  const todos: TodoEntry[] = []
+  for (const item of items) {
+    if (item && typeof item === 'object') {
+      const obj = item as Record<string, unknown>
+      const todoContent = obj.content
+      const status = obj.status
+      if (typeof todoContent === 'string' && typeof status === 'string') {
+        todos.push({ content: todoContent, status })
+      }
+    }
+  }
+
+  return todos.length > 0 ? todos : null
+}
+
+function tryParseArrayLiteral(raw: string): unknown[] | null {
+  // Direct JSON
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed
+  } catch {
+    // fall through
+  }
+
+  // Python-style array: single quotes + True/False/None — convert to JSON
+  try {
+    let normalized = raw.trim()
+    // Replace Python literals with JSON equivalents (only when whole-word)
+    normalized = normalized
+      .replace(/\bTrue\b/g, 'true')
+      .replace(/\bFalse\b/g, 'false')
+      .replace(/\bNone\b/g, 'null')
+    // Naive single-quote → double-quote swap. Good enough for our schema
+    // (todo content/status are plain words/sentences without embedded quotes
+    // most of the time); fall back to null on failure.
+    normalized = normalized.replace(/'/g, '"')
+    const parsed = JSON.parse(normalized)
+    if (Array.isArray(parsed)) return parsed
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+function TodoListDisplay({ todos }: { todos: TodoEntry[] }) {
+  return (
+    <ul className={styles.todoItems}>
+      {todos.map((todo, index) => {
+        const isCompleted = todo.status === 'completed'
+        const isInProgress = todo.status === 'in_progress'
+        const itemClass = [
+          styles.todoItem,
+          isCompleted ? styles.todoCompleted : '',
+          isInProgress ? styles.todoInProgress : '',
+        ].filter(Boolean).join(' ')
+        return (
+          <li key={index} className={itemClass}>
+            <span className={styles.todoIcon} aria-hidden="true">
+              {isCompleted ? <CheckSquare size={16} /> : <Square size={16} />}
+            </span>
+            <span className={styles.todoContent}>{todo.content}</span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -593,12 +690,23 @@ export function TasksPage() {
                 )
               ) : (
                 <>
-                  {selectedItem.input && (
-                    <div className={styles.detailSection}>
-                      <h4>Input</h4>
-                      <JsonDisplay content={selectedItem.input} />
-                    </div>
-                  )}
+                  {selectedItem.input && (() => {
+                    const normalizedName = (selectedItem.name || '')
+                      .toLowerCase()
+                      .replace(/[\s-]+/g, '_')
+                    const isTodoAction =
+                      selectedItem.itemType === 'action' &&
+                      normalizedName === 'task_update_todos'
+                    const todos = isTodoAction ? extractTodos(selectedItem.input) : null
+                    return (
+                      <div className={styles.detailSection}>
+                        <h4>{todos ? 'Todos' : 'Input'}</h4>
+                        {todos
+                          ? <TodoListDisplay todos={todos} />
+                          : <JsonDisplay content={selectedItem.input} />}
+                      </div>
+                    )
+                  })()}
 
                   {selectedItem.output && (
                     <div className={styles.detailSection}>
