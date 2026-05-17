@@ -2155,21 +2155,36 @@ class AgentBase:
     async def _handle_chat_message(self, payload: Dict):
         """Decide where an incoming chat message goes.
 
-        Layered routing rules (deterministic first, LLM only as last resort):
-          1. Third-party external (no is_self_message): post notification, done.
-          2. UI reply with valid target_session_id: fire that session.
-          3. UI reply marker without valid target: new session, reply context
-             stays embedded in the message text.
-          4. Exactly one task is waiting_for_user_reply: fire that one.
-          5. Active tasks exist and message is genuinely ambiguous: routing LLM
-             with conservative prompt (defaults to new session). Handles Living
-             UI cross-references — chat is global, so a message about Living UI
-             B while viewing Living UI A should still route to B's task.
-          6. Default: new session.
+        Each chat message is delivered to exactly one destination: an existing
+        task session, or a fresh session. Routing tries the cheap deterministic
+        signals first and only consults the LLM router when none of them apply.
 
-        Routing only decides *where* the message goes. The new session's first
-        action-selection LLM still picks send_message / task_start(simple) /
-        task_start(complex) as appropriate.
+          1. Third-party external message (someone other than the user sent it
+             on a connected platform): post a notification to the main stream
+             and stop. No session, no agent action.
+
+          2. The UI attached an explicit target_session_id (the user clicked
+             "reply" on a specific task's message): fire that session. If the
+             session no longer exists, fall through.
+
+          3. The message text carries the "[REPLYING TO PREVIOUS AGENT MESSAGE]:"
+             marker but no valid target session: open a new session. The reply
+             context is already embedded in the message body.
+
+          4. At least one task is active: ask the routing LLM whether this
+             message clearly continues, modifies, cancels, or answers one of
+             them. The LLM sees each session's instruction, todo progress,
+             recent activity, waiting_for_user_reply status, and Living UI
+             binding, and defaults to "new" when in doubt. Living UI
+             cross-references are resolved here too — chat is global, so a
+             message about Living UI B while viewing Living UI A still routes
+             to B's task.
+
+          5. No active tasks (or the LLM chose "new"): open a new session.
+
+        Routing only decides *where* the message goes. Once it lands, the
+        target session's own action-selection LLM picks the next action
+        (send_message, task_start, task_update_todos, etc.).
         """
         try:
             chat_content = payload.get("text", "")
@@ -2215,24 +2230,13 @@ class AgentBase:
                 await self._create_new_session_trigger(chat_content, payload, platform, gui_mode)
                 return
 
-            # ── Rule 4: Exactly one task is waiting_for_user_reply.
-            waiting_session_ids = []
-            if self.task_manager:
-                for tid in active_task_ids:
-                    task = self.task_manager.tasks.get(tid)
-                    if task and getattr(task, "waiting_for_user_reply", False):
-                        waiting_session_ids.append(tid)
-            if len(waiting_session_ids) == 1:
-                sid = waiting_session_ids[0]
-                logger.info(f"[CHAT] Routing to single waiting session {sid}")
-                if await self._fire_session(sid, chat_content, platform, living_ui_id):
-                    return
-
-            # ── Rule 5: Active tasks exist and signal is ambiguous → conservative routing LLM.
-            # Also handles Living UI cross-references: chat is global, so a message
-            # explicitly about Living UI B while viewing Living UI A should still
-            # route to B's task. The LLM sees each session's Living UI binding and
-            # the user's current Living UI to decide.
+            # ── Rule 4: Active tasks exist → conservative routing LLM.
+            # The LLM sees each session's waiting_for_user_reply status, Living UI
+            # binding, and recent activity, and defaults to "new" when in doubt.
+            # We intentionally do NOT short-circuit on "single waiting task":
+            # tasks often park on a final "anything else?" question, and the
+            # next user message may be a completely unrelated request that
+            # deserves its own session.
             if active_task_ids:
                 active_triggers = await self.triggers.list_triggers()
                 existing_sessions = self._format_sessions_for_routing(active_task_ids, active_triggers)
@@ -2255,7 +2259,7 @@ class AgentBase:
                             return
                         logger.warning(f"[CHAT] LLM routed to {matched} but trigger not found — creating new session")
 
-            # ── Rule 6: Default — create a new session.
+            # ── Rule 5: Default — create a new session.
             await self._create_new_session_trigger(chat_content, payload, platform, gui_mode)
 
         except Exception as e:
