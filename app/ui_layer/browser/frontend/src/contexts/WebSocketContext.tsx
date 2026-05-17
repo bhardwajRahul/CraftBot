@@ -470,6 +470,24 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         break
       }
 
+      case 'task_token_update': {
+        const { id, inputTokens, outputTokens, cacheTokens } = msg.data as {
+          id: string
+          inputTokens: number
+          outputTokens: number
+          cacheTokens: number
+        }
+        setState(prev => ({
+          ...prev,
+          actions: prev.actions.map(a =>
+            a.id === id
+              ? { ...a, inputTokens, outputTokens, cacheTokens }
+              : a
+          ),
+        }))
+        break
+      }
+
       case 'action_remove': {
         const { id } = msg.data as { id: string }
         setState(prev => ({

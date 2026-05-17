@@ -435,6 +435,9 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     error_message=stored.error_message,
                     selected_skills=list(stored.selected_skills or []),
                     workflow_id=stored.workflow_id,
+                    input_tokens=stored.input_tokens,
+                    output_tokens=stored.output_tokens,
+                    cache_tokens=stored.cache_tokens,
                 ))
         except Exception:
             # Storage may not be available, continue without persistence
@@ -458,6 +461,9 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     error_message=item.error_message,
                     selected_skills=list(item.selected_skills or []),
                     workflow_id=item.workflow_id,
+                    input_tokens=item.input_tokens,
+                    output_tokens=item.output_tokens,
+                    cache_tokens=item.cache_tokens,
                 )
                 self._storage.insert_item(stored)
             except Exception:
@@ -493,6 +499,9 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                 "error": item.error_message,
                 "selectedSkills": list(item.selected_skills or []),
                 "workflowId": item.workflow_id,
+                "inputTokens": item.input_tokens,
+                "outputTokens": item.output_tokens,
+                "cacheTokens": item.cache_tokens,
             },
         })
 
@@ -589,6 +598,49 @@ class BrowserActionPanelComponent(ActionPanelProtocol):
                     "error": matched_item.error_message,
                 },
             })
+
+    async def update_item_tokens(
+        self,
+        item_id: str,
+        input_tokens: int,
+        output_tokens: int,
+        cache_tokens: int,
+    ) -> None:
+        """Update a task item's cumulative token counters and broadcast."""
+        from app.logger import logger
+
+        matched_item = None
+        for item in self._items:
+            if item.id == item_id:
+                item.input_tokens = input_tokens
+                item.output_tokens = output_tokens
+                item.cache_tokens = cache_tokens
+                matched_item = item
+                break
+
+        if matched_item:
+            # Persist update to storage so totals survive a refresh/restart
+            self._persist_item(matched_item)
+
+            await self._adapter._broadcast({
+                "type": "task_token_update",
+                "data": {
+                    "id": item_id,
+                    "inputTokens": input_tokens,
+                    "outputTokens": output_tokens,
+                    "cacheTokens": cache_tokens,
+                },
+            })
+            logger.debug(
+                f"[TOKEN_UI] broadcast task_token_update id={item_id} "
+                f"in={input_tokens} out={output_tokens} cache={cache_tokens}"
+            )
+        else:
+            logger.warning(
+                f"[TOKEN_UI] update_item_tokens: no ActionItem in panel for id={item_id} "
+                f"(panel has {len(self._items)} items). "
+                f"Token attribution will be invisible to the UI until the task is added."
+            )
 
     async def update_item_data(
         self,
@@ -5880,6 +5932,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "error": a.error_message,
                     "selectedSkills": list(a.selected_skills or []),
                     "workflowId": a.workflow_id,
+                    "inputTokens": a.input_tokens,
+                    "outputTokens": a.output_tokens,
+                    "cacheTokens": a.cache_tokens,
                 }
                 for a in older_items
             ]
@@ -6467,6 +6522,9 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                     "error": a.error_message,
                     "selectedSkills": list(a.selected_skills or []),
                     "workflowId": a.workflow_id,
+                    "inputTokens": a.input_tokens,
+                    "outputTokens": a.output_tokens,
+                    "cacheTokens": a.cache_tokens,
                 }
                 for a in self._action_panel.get_items()
             ],

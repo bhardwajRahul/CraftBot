@@ -23,6 +23,7 @@ class UIEventType(Enum):
     TASK_START = auto()
     TASK_END = auto()
     TASK_UPDATE = auto()
+    TASK_TOKEN_UPDATE = auto()
     ACTION_START = auto()
     ACTION_END = auto()
     ACTION_UPDATE = auto()

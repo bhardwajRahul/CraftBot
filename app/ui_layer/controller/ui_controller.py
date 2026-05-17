@@ -109,6 +109,15 @@ class UIController:
         # Register enabled skills as slash commands
         self._register_skill_commands()
 
+        # Expose the event bus on global STATE so module-level hooks
+        # (e.g. _report_usage in app/llm/interface.py) can emit UI events
+        # without needing a controller handle.
+        try:
+            from app.state.agent_state import STATE
+            STATE.event_bus = self._event_bus
+        except Exception:
+            pass
+
     # ─────────────────────────────────────────────────────────────────────
     # Properties
     # ─────────────────────────────────────────────────────────────────────

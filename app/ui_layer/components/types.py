@@ -117,6 +117,9 @@ class ActionItem:
     error_message: Optional[str] = None
     selected_skills: List[str] = field(default_factory=list)
     workflow_id: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cache_tokens: Optional[int] = None
 
     @property
     def is_task(self) -> bool:

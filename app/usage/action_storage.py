@@ -50,6 +50,10 @@ class StoredActionItem:
     # Task-level metadata (populated only when item_type == "task")
     selected_skills: List[str] = field(default_factory=list)
     workflow_id: Optional[str] = None
+    # Per-task cumulative LLM token usage (task-level only; None for actions)
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cache_tokens: Optional[int] = None
 
     @property
     def duration(self) -> Optional[int]:
@@ -73,6 +77,9 @@ class StoredActionItem:
             "error": self.error_message,
             "selectedSkills": self.selected_skills,
             "workflowId": self.workflow_id,
+            "inputTokens": self.input_tokens,
+            "outputTokens": self.output_tokens,
+            "cacheTokens": self.cache_tokens,
         }
 
 
@@ -131,6 +138,12 @@ class ActionStorage:
                 cursor.execute("ALTER TABLE action_items ADD COLUMN selected_skills TEXT")
             if "workflow_id" not in existing_columns:
                 cursor.execute("ALTER TABLE action_items ADD COLUMN workflow_id TEXT")
+            if "input_tokens" not in existing_columns:
+                cursor.execute("ALTER TABLE action_items ADD COLUMN input_tokens INTEGER")
+            if "output_tokens" not in existing_columns:
+                cursor.execute("ALTER TABLE action_items ADD COLUMN output_tokens INTEGER")
+            if "cache_tokens" not in existing_columns:
+                cursor.execute("ALTER TABLE action_items ADD COLUMN cache_tokens INTEGER")
 
             # Create indexes for common queries
             cursor.execute("""
@@ -166,8 +179,9 @@ class ActionStorage:
                 INSERT OR REPLACE INTO action_items
                 (id, name, status, item_type, parent_id, created_at,
                  completed_at, input_data, output_data, error_message,
-                 selected_skills, workflow_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 selected_skills, workflow_id,
+                 input_tokens, output_tokens, cache_tokens)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 item.id,
                 item.name,
@@ -181,6 +195,9 @@ class ActionStorage:
                 item.error_message,
                 skills_json,
                 item.workflow_id,
+                item.input_tokens,
+                item.output_tokens,
+                item.cache_tokens,
             ))
             conn.commit()
 
@@ -250,7 +267,8 @@ class ActionStorage:
             query = """
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       selected_skills, workflow_id,
+                       input_tokens, output_tokens, cache_tokens
                 FROM action_items
             """
             if not include_running:
@@ -274,6 +292,9 @@ class ActionStorage:
                     error_message=row[9],
                     selected_skills=_decode_skills(row[10]),
                     workflow_id=row[11],
+                    input_tokens=row[12],
+                    output_tokens=row[13],
+                    cache_tokens=row[14],
                 )
                 for row in rows
             ]
@@ -294,7 +315,8 @@ class ActionStorage:
             cursor.execute("""
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       selected_skills, workflow_id,
+                       input_tokens, output_tokens, cache_tokens
                 FROM action_items
                 ORDER BY created_at DESC
                 LIMIT ?
@@ -315,6 +337,9 @@ class ActionStorage:
                     error_message=row[9],
                     selected_skills=_decode_skills(row[10]),
                     workflow_id=row[11],
+                    input_tokens=row[12],
+                    output_tokens=row[13],
+                    cache_tokens=row[14],
                 )
                 for row in rows
             ]
@@ -337,7 +362,8 @@ class ActionStorage:
             cursor.execute("""
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       selected_skills, workflow_id,
+                       input_tokens, output_tokens, cache_tokens
                 FROM action_items
                 WHERE id = ?
             """, (item_id,))
@@ -357,6 +383,9 @@ class ActionStorage:
                     error_message=row[9],
                     selected_skills=_decode_skills(row[10]),
                     workflow_id=row[11],
+                    input_tokens=row[12],
+                    output_tokens=row[13],
+                    cache_tokens=row[14],
                 )
             return None
 
@@ -505,7 +534,8 @@ class ActionStorage:
             cursor.execute(f"""
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       selected_skills, workflow_id,
+                       input_tokens, output_tokens, cache_tokens
                 FROM action_items
                 WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
                 ORDER BY created_at ASC
@@ -526,6 +556,9 @@ class ActionStorage:
                     error_message=row[9],
                     selected_skills=_decode_skills(row[10]),
                     workflow_id=row[11],
+                    input_tokens=row[12],
+                    output_tokens=row[13],
+                    cache_tokens=row[14],
                 )
                 for row in rows
             ]
@@ -563,7 +596,8 @@ class ActionStorage:
             cursor.execute(f"""
                 SELECT id, name, status, item_type, parent_id, created_at,
                        completed_at, input_data, output_data, error_message,
-                       selected_skills, workflow_id
+                       selected_skills, workflow_id,
+                       input_tokens, output_tokens, cache_tokens
                 FROM action_items
                 WHERE id IN ({placeholders}) OR parent_id IN ({placeholders})
                 ORDER BY created_at ASC
@@ -584,6 +618,9 @@ class ActionStorage:
                     error_message=row[9],
                     selected_skills=_decode_skills(row[10]),
                     workflow_id=row[11],
+                    input_tokens=row[12],
+                    output_tokens=row[13],
+                    cache_tokens=row[14],
                 )
                 for row in rows
             ]

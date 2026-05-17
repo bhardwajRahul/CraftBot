@@ -561,6 +561,24 @@ export function TasksPage() {
                   <dd>{formatTimestamp(selectedItem.createdAt)}</dd>
                   <dt>Duration</dt>
                   <dd>{formatDuration(selectedItem.duration)}</dd>
+                  {selectedItem.itemType === 'task' && selectedItem.inputTokens != null && (
+                    <>
+                      <dt>Input Tokens</dt>
+                      <dd>{selectedItem.inputTokens.toLocaleString()}</dd>
+                    </>
+                  )}
+                  {selectedItem.itemType === 'task' && selectedItem.outputTokens != null && (
+                    <>
+                      <dt>Output Tokens</dt>
+                      <dd>{selectedItem.outputTokens.toLocaleString()}</dd>
+                    </>
+                  )}
+                  {selectedItem.itemType === 'task' && selectedItem.cacheTokens != null && (
+                    <>
+                      <dt>Cache Tokens</dt>
+                      <dd>{selectedItem.cacheTokens.toLocaleString()}</dd>
+                    </>
+                  )}
                 </dl>
               </div>
 

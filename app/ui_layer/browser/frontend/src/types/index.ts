@@ -52,6 +52,9 @@ export interface ActionItem {
   duration?: number
   selectedSkills?: string[]
   workflowId?: string
+  inputTokens?: number
+  outputTokens?: number
+  cacheTokens?: number
 }
 
 // ─────────────────────────────────────────────────────────────────────
