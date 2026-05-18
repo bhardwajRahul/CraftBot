@@ -83,7 +83,7 @@ def _line_config_file() -> str:
 @register_handler(LINE.name)
 class LineHandler(IntegrationHandler):
     spec = LINE
-    display_name = "LINE"
+    display_name = "LINE Business"
     description = "Messaging via LINE Messaging API (send-only)"
     auth_type = "token"
     icon = "line"
