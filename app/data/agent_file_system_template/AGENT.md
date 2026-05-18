@@ -2833,7 +2833,7 @@ provider     LLM default model            VLM default model           EMBEDDING 
 openai       gpt-5.2-2025-12-11           gpt-5.2-2025-12-11          text-embedding-3-small   OpenAI-hosted
 anthropic    claude-sonnet-4-5-20250929   claude-sonnet-4-5-20250929  (none — no embedding)    Claude models
 gemini       gemini-2.5-pro               gemini-2.5-pro              text-embedding-004       Google Gemini
-byteplus     seed-1-6-250915              seed-1-6-250915             skylark-embedding-...    BytePlus-hosted
+byteplus     seed-2-0-pro-260328          seed-2-0-pro-260328         skylark-embedding-...    BytePlus-hosted
 remote       llama3.2:3b                  llava:7b                    nomic-embed-text         Ollama or OpenAI-compat
 deepseek     deepseek-chat                (none)                      (none)                   text only
 moonshot     moonshot-v1-8k               (none)                      (none)                   text only
