@@ -1040,6 +1040,19 @@ A mission with stale `Next Steps` is worse than no mission. Always leave it acti
 
 ## Documents
 
+### Delivery format (decide first)
+
+```
+Short answer / explanation / summary / plan / code snippet / small table   → inline chat (send_message)
+Long report / memo / formal document                                       → PDF (default)
+Slide deck                                                                  → pptx
+Spreadsheet                                                                 → xlsx
+Editable Word doc                                                           → docx (only on user request)
+```
+
+- Long-form deliverable defaults to PDF. docx/pptx/xlsx only on explicit user request or obvious fit.
+- Don't create a file to hold content that fits in chat.
+
 [agent_file_system/FORMAT.md](agent_file_system/FORMAT.md) is the source of truth for every document you generate (PDF, pptx, docx, xlsx, and any other file-format output). Read it before generating; it carries the user's brand colors, fonts, writing style, and layout rules.
 
 ### FORMAT.md structure
