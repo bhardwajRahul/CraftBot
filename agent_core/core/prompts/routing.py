@@ -7,13 +7,18 @@ This module contains prompt templates for routing messages to sessions.
 
 # --- Unified Session Routing ---
 # This prompt is the LAST-RESORT routing decision. The chat handler short-circuits
-# the easy cases deterministically (explicit UI reply target, third-party
-# notifications, single waiting task, reply markers) BEFORE this prompt runs.
-# By the time the LLM sees the message, those cases are already handled.
+# the easy cases (explicit UI reply target, third-party notifications, reply
+# markers) before this prompt runs.
 #
-# The prompt's job: decide if a message in main chat with active task(s) is
-# CLEARLY a continuation/modification of one of those tasks, or a new request.
-# Default to NEW SESSION when in doubt.
+# The prompt's job: with one or more active tasks, decide whether the incoming
+# message is unambiguously linked to one of them (continuation, modification,
+# cancellation, answer to its question, or Living UI reference) or is a fresh
+# request that deserves a new session. Default to NEW when in doubt.
+#
+# A waiting task's approval-seeking question ("is this acceptable?") plus a
+# user reply containing approval language ("thanks", "looks good") IS the
+# task_end signal that task is parked for — the prompt is explicit about this
+# so the LLM does not misfile it as conversational chatter.
 ROUTE_TO_SESSION_PROMPT = """
 <objective>
 You are a session router. Decide whether an incoming message is a clear continuation
@@ -38,56 +43,34 @@ that are no longer in <existing_sessions>):
 </recent_conversation>
 
 <rules>
-DEFAULT: create a new session. When in doubt, choose "new".
+DEFAULT: new session. Route to an existing session S ONLY when the message
+has an unambiguous link to S.
 
-Route to an existing session ONLY IF the message clearly fits ONE of these:
-  - References a specific file, output, or artifact created by that task
-    (e.g. "the PDF you made", "the translated report", a filename produced by that task)
-  - Is a clear modification of that task's original instruction
-    (e.g. "translate to Spanish instead", "also include X", "skip page 5", "make it shorter")
-  - Cancels or pauses that task explicitly
-    (e.g. "stop the translation", "pause the report", "cancel that task")
-  - Is a context-dependent message ("fix this", "it's broken", "add a feature")
-    AND there is an active task whose Living UI ID matches the user's current
-    Living UI page (see <incoming_item> above)
-  - Explicitly names a Living UI app/project that matches one of the active
-    tasks' Living UI bindings — even if the user is currently viewing a
-    different Living UI page. Chat is global; the user can talk about any
-    Living UI from anywhere.
+Route to S when the message:
+1. Names an artifact / file / output S produced.
+2. Modifies, narrows, or cancels S's instruction.
+3. Answers a question S's last agent message asked. Critical case: if S is
+   WAITING FOR REPLY and its last outbound sought approval or change
+   feedback (e.g. "is this acceptable?", "does this look good?", "want
+   changes?"), then approval phrases — "thanks", "looks good", "it's good",
+   "done", "that's all", including thanks-wrapped variants like
+   "thanks, looks good" or "thanks for X, it's good" — ARE that answer.
+   This is the task_end approval S is parked for; do not misclassify as
+   conversational.
+4. Living UI: context-free reference ("fix this", "it broke") AND S's
+   Living UI ID matches the user's current page; OR the message explicitly
+   names a Living UI matching S's binding (chat is global, any page).
 
-DO NOT route based on:
-  - "There's only one active task" — single active task is NOT a reason to route
-    a generic message to it. This bias previously caused multiple wrong-routing bugs.
-  - Generic acknowledgments ("thanks", "ok", "got it", "yes", "no") — these are
-    conversational. Create a new session.
-  - Topic resemblance alone — "I want to translate something" while a translate
-    task is running is a NEW request, not a modification of the active task,
-    unless the user explicitly says so.
-  - "[REPLYING TO PREVIOUS AGENT MESSAGE]:" markers — those are handled before
-    this prompt runs and won't reach you.
+Insufficient → new session:
+- S exists, or is the only active task.
+- Same topic as S without an explicit reference.
+- S's last outbound is only a generic close-out ("anything else?",
+  "let me know if needed") — close-outs are not routable questions; an
+  unrelated follow-up is a new session.
 
-Living UI specifics:
-  - The user's current Living UI page is a CONTEXT hint, not a hard binding.
-  - For context-dependent messages with no explicit reference, prefer the task
-    bound to the user's current Living UI.
-  - For messages that explicitly name a different Living UI (by app name, project
-    path, or feature description that clearly belongs to that other Living UI),
-    route to THAT Living UI's task instead.
-  - If no active task matches the referenced Living UI, choose new session.
-
-Using <recent_conversation>:
-  - It tells you what was just discussed across the whole agent (not just one
-    task). Use it to disambiguate context-dependent messages — e.g., "and
-    Spanish" makes sense if the previous message was about translation.
-  - If the recent conversation shows a task topic that has already COMPLETED
-    (no longer in <existing_sessions>), prefer creating a new session over
-    routing to an unrelated active task. The completed task can't be resumed.
-  - If the recent conversation contains nothing relevant, treat the message
-    purely on its own merits per the rules above.
-
-The "agent asked a question, user is answering" case is handled
-deterministically before this prompt runs (via the waiting_for_user_reply flag).
-You do NOT need to consider it.
+recent_conversation resolves ambiguous references. If the relevant topic is
+in a COMPLETED task (absent from existing_sessions), choose NEW —
+completed sessions cannot resume.
 </rules>
 
 <output_format>

@@ -2,9 +2,9 @@
 """Utility client for interacting with the Google Generative Language REST API.
 
 This small helper wraps the HTTP endpoints used by Gemini so that we can
-interact with the service without pulling in the ``google-generativeai``
-package.  Using the REST interface keeps stderr free from the gRPC warnings the
-SDK emits during import/initialisation (e.g. the ``ALTS creds ignored`` message
+interact with the service without pulling in the ``google-genai`` package.
+Using the REST interface keeps stderr free from the gRPC warnings the SDK
+emits during import/initialisation (e.g. the ``ALTS creds ignored`` message
 that was polluting the CLI output).
 """
 from __future__ import annotations

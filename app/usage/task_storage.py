@@ -166,7 +166,7 @@ class TaskStorage:
                 SELECT
                     COUNT(*) as total_tasks,
                     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
-                    SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as failed_tasks,
+                    SUM(CASE WHEN status IN ('error', 'cancelled') THEN 1 ELSE 0 END) as failed_tasks,
                     SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_tasks,
                     SUM(total_cost) as total_cost,
                     AVG(duration_ms) as avg_duration_ms,

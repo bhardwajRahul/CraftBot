@@ -138,6 +138,14 @@ class InterfaceAdapter(ABC):
         self._running = True
         self._controller.register_adapter(self)
 
+        # Capture the main event loop so worker threads (LLM calls invoked
+        # via asyncio.to_thread) can schedule coroutines back onto it.
+        try:
+            from app.state.agent_state import STATE
+            STATE.main_loop = asyncio.get_running_loop()
+        except Exception:
+            pass
+
         # Subscribe to events
         self._subscribe_events()
 
@@ -241,6 +249,9 @@ class InterfaceAdapter(ABC):
         )
         self._unsubscribers.append(
             bus.subscribe(UIEventType.TASK_UPDATE, self._handle_task_update)
+        )
+        self._unsubscribers.append(
+            bus.subscribe(UIEventType.TASK_TOKEN_UPDATE, self._handle_task_token_update)
         )
 
         # Footage events
@@ -348,6 +359,20 @@ class InterfaceAdapter(ABC):
         if not task_id:
             return
 
+        # Look up the source Task to capture skill/workflow context for the UI
+        selected_skills: List[str] = []
+        workflow_id: Optional[str] = None
+        try:
+            agent = getattr(self._controller, "agent", None)
+            task_manager = getattr(agent, "task_manager", None) if agent else None
+            if task_manager is not None:
+                task = task_manager.get_task_by_id(task_id)
+                if task is not None:
+                    selected_skills = list(task.selected_skills or [])
+                    workflow_id = task.workflow_id
+        except Exception:
+            pass
+
         if self.action_panel:
             asyncio.create_task(
                 self.action_panel.add_item(
@@ -356,6 +381,8 @@ class InterfaceAdapter(ABC):
                         name=event.data.get("task_name", "Task"),
                         status="running",
                         item_type="task",
+                        selected_skills=selected_skills,
+                        workflow_id=workflow_id,
                     )
                 )
             )
@@ -450,6 +477,39 @@ class InterfaceAdapter(ABC):
             asyncio.create_task(
                 self.action_panel.update_item(task_id, status)
             )
+
+    def _handle_task_token_update(self, event: UIEvent) -> None:
+        """Handle per-task token-usage tick - push running totals to the panel.
+
+        This handler can be invoked from a worker thread (LLM calls run via
+        asyncio.to_thread, so _report_usage_async fires off-loop). On a
+        worker thread asyncio.create_task raises RuntimeError because there
+        is no running loop, so we must dispatch to the main loop explicitly.
+        """
+        task_id = event.data.get("task_id", "")
+        if not (task_id and self.action_panel):
+            return
+
+        coro = self.action_panel.update_item_tokens(
+            task_id,
+            int(event.data.get("input_tokens", 0)),
+            int(event.data.get("output_tokens", 0)),
+            int(event.data.get("cache_tokens", 0)),
+        )
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(coro)
+        except RuntimeError:
+            # Called from a worker thread (typical for LLM result reporting).
+            # Schedule onto the main loop captured at adapter start.
+            from app.state.agent_state import STATE
+            main_loop = STATE.main_loop
+            if main_loop is not None and not main_loop.is_closed():
+                asyncio.run_coroutine_threadsafe(coro, main_loop)
+            else:
+                # Avoid "coroutine was never awaited" warning if we can't dispatch
+                coro.close()
 
     def _handle_footage_update(self, event: UIEvent) -> None:
         """Handle footage update event."""

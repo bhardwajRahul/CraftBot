@@ -30,33 +30,51 @@ import time
 import uuid
 import json
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from agent_core import Action
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from agent_core import ActionLibrary, ActionManager, ActionRouter
 from agent_core import settings_manager, config_watcher
 
 from app.config import (
-    AGENT_WORKSPACE_ROOT,
     AGENT_FILE_SYSTEM_PATH,
     AGENT_FILE_SYSTEM_TEMPLATE_PATH,
     AGENT_MEMORY_CHROMA_PATH,
     PROCESS_MEMORY_AT_STARTUP,
+    PROJECT_ROOT,
+    GOOGLE_CLIENT_ID,
+    GOOGLE_CLIENT_SECRET,
+    OUTLOOK_CLIENT_ID,
+    LINKEDIN_CLIENT_ID,
+    LINKEDIN_CLIENT_SECRET,
+    NOTION_SHARED_CLIENT_ID,
+    NOTION_SHARED_CLIENT_SECRET,
+    SLACK_SHARED_CLIENT_ID,
+    SLACK_SHARED_CLIENT_SECRET,
+    TELEGRAM_SHARED_BOT_TOKEN,
+    TELEGRAM_SHARED_BOT_USERNAME,
+    TELEGRAM_API_ID,
+    TELEGRAM_API_HASH,
     get_api_key,
     get_base_url,
 )
+from craftos_integrations import (
+    configure as _configure_integrations,
+    initialize_manager,
+)
 
 from app.internal_action_interface import InternalActionInterface
+
 from app.llm import LLMInterface, LLMCallType
-from agent_core.core.impl.llm.errors import classify_llm_error, LLMConsecutiveFailureError
+from agent_core.core.impl.llm.errors import (
+    classify_llm_error,
+    classify_llm_error_message,
+    LLMConsecutiveFailureError,
+)
 from app.vlm_interface import VLMInterface
 from app.database_interface import DatabaseInterface
 from app.logger import logger
 from agent_core import (
     MemoryManager,
-    MemoryPointer,
     MemoryFileWatcher,
     create_memory_processing_task,
     WorkflowLockManager,
@@ -73,7 +91,7 @@ from app.event_stream import EventStreamManager
 from app.gui.gui_module import GUIModule
 from app.gui.handler import GUIHandler
 from app.scheduler import SchedulerManager
-from app.proactive import initialize_proactive_manager, get_proactive_manager
+from app.proactive import initialize_proactive_manager
 from app.ui_layer.settings.memory_settings import (
     is_memory_enabled,
     _parse_memory_items,
@@ -88,7 +106,6 @@ from agent_core import (
     EventStreamManagerRegistry,
     StateManagerRegistry,
     ContextEngineRegistry,
-    ActionExecutorRegistry,
     ActionManagerRegistry,
     TaskManagerRegistry,
     MemoryRegistry,
@@ -1297,26 +1314,49 @@ class AgentBase:
         if not session_to_use or not self.event_stream_manager:
             return
 
-        # Get user-friendly error message
-        user_message = classify_llm_error(error)
-
-        # Fatal LLM errors must not re-queue the task - that causes infinite retry loops
-        # Walk the full exception chain (__cause__, __context__) to detect wrapped errors
+        # Walk the exception chain (__cause__, __context__) to detect the
+        # fatal-LLM case. We need the LLMConsecutiveFailureError to surface
+        # the *cause* of the 5 failures (e.g. "rate-limited on Google AI
+        # Studio"), not the meta-message about retry counts.
         is_fatal_llm_error = False
+        fatal_exc: LLMConsecutiveFailureError | None = None
+        seen: set[int] = set()
         exc: BaseException | None = error
-        while exc is not None:
+        while exc is not None and id(exc) not in seen:
+            seen.add(id(exc))
             if isinstance(exc, LLMConsecutiveFailureError):
                 is_fatal_llm_error = True
+                fatal_exc = exc
                 break
-            exc = exc.__cause__ or exc.__context__
-            if exc is error:  # prevent infinite loop on circular chains
+            cause = exc.__cause__ or exc.__context__
+            if cause is None or cause is exc:
                 break
+            exc = cause
+
+        # Compose the user-facing message. For the fatal case we lead with
+        # the cause (already a rich detailed string from the classifier)
+        # and prefix the abort context. For non-fatal cases the RuntimeError
+        # we receive was already constructed from `info.message` upstream
+        # in interface.py, so str(error) IS the rich text — classify is a
+        # no-op fallthrough that returns the same string back.
+        if is_fatal_llm_error and fatal_exc is not None and fatal_exc.last_error_info is not None:
+            cause_msg = fatal_exc.last_error_info.message
+            user_message = f"Aborted after consecutive failures. {cause_msg}"
+        elif is_fatal_llm_error and fatal_exc is not None:
+            # Old code path that didn't attach last_error_info — fall back
+            # to the wrapper's str(). Better than empty.
+            user_message = str(fatal_exc)
+        else:
+            try:
+                user_message = classify_llm_error_message(error)
+            except Exception:
+                user_message = str(error) or "AI service error"
 
         try:
             logger.debug("[REACT ERROR] Logging to event stream")
             self.event_stream_manager.log(
                 "error",
-                f"[REACT] {type(error).__name__}: {error}\n{tb}",
+                f"[REACT] {type(error).__name__}: {user_message}",
                 display_message=user_message,
                 task_id=session_to_use,
             )
@@ -1364,12 +1404,13 @@ class AgentBase:
     # ----- Agent Limits -----
 
     async def _check_agent_limits(self) -> bool:
-        agent_properties = STATE.get_agent_properties()
+        from app.state.agent_state import get_session_props
+        current_task_id: str = STATE.get_agent_property("current_task_id", "")
+        agent_properties = get_session_props(current_task_id).to_dict()
         action_count: int = agent_properties.get("action_count", 0)
         max_actions: int = agent_properties.get("max_actions_per_task", 0)
         token_count: int = agent_properties.get("token_count", 0)
         max_tokens: int = agent_properties.get("max_tokens_per_task", 0)
-        current_task_id: str = agent_properties.get("current_task_id", "")
 
         # Check action limits
         if (action_count / max_actions) >= 1.0:
@@ -1535,13 +1576,9 @@ class AgentBase:
             logger.warning(f"[LIMIT] Task {session_id} not found for limit continue")
             return
 
-        # Reset counters
-        STATE.set_agent_property("action_count", 0)
-        STATE.set_agent_property("token_count", 0)
-
-        # Also reset on the StateSession for this session
+        # Reset per-task counters on this session's StateSession.
         from agent_core.core.state.session import StateSession
-        session = StateSession.get(session_id)
+        session = StateSession.get_or_none(session_id)
         if session:
             session.agent_properties.set_property("action_count", 0)
             session.agent_properties.set_property("token_count", 0)
@@ -2118,21 +2155,36 @@ class AgentBase:
     async def _handle_chat_message(self, payload: Dict):
         """Decide where an incoming chat message goes.
 
-        Layered routing rules (deterministic first, LLM only as last resort):
-          1. Third-party external (no is_self_message): post notification, done.
-          2. UI reply with valid target_session_id: fire that session.
-          3. UI reply marker without valid target: new session, reply context
-             stays embedded in the message text.
-          4. Exactly one task is waiting_for_user_reply: fire that one.
-          5. Active tasks exist and message is genuinely ambiguous: routing LLM
-             with conservative prompt (defaults to new session). Handles Living
-             UI cross-references — chat is global, so a message about Living UI
-             B while viewing Living UI A should still route to B's task.
-          6. Default: new session.
+        Each chat message is delivered to exactly one destination: an existing
+        task session, or a fresh session. Routing tries the cheap deterministic
+        signals first and only consults the LLM router when none of them apply.
 
-        Routing only decides *where* the message goes. The new session's first
-        action-selection LLM still picks send_message / task_start(simple) /
-        task_start(complex) as appropriate.
+          1. Third-party external message (someone other than the user sent it
+             on a connected platform): post a notification to the main stream
+             and stop. No session, no agent action.
+
+          2. The UI attached an explicit target_session_id (the user clicked
+             "reply" on a specific task's message): fire that session. If the
+             session no longer exists, fall through.
+
+          3. The message text carries the "[REPLYING TO PREVIOUS AGENT MESSAGE]:"
+             marker but no valid target session: open a new session. The reply
+             context is already embedded in the message body.
+
+          4. At least one task is active: ask the routing LLM whether this
+             message clearly continues, modifies, cancels, or answers one of
+             them. The LLM sees each session's instruction, todo progress,
+             recent activity, waiting_for_user_reply status, and Living UI
+             binding, and defaults to "new" when in doubt. Living UI
+             cross-references are resolved here too — chat is global, so a
+             message about Living UI B while viewing Living UI A still routes
+             to B's task.
+
+          5. No active tasks (or the LLM chose "new"): open a new session.
+
+        Routing only decides *where* the message goes. Once it lands, the
+        target session's own action-selection LLM picks the next action
+        (send_message, task_start, task_update_todos, etc.).
         """
         try:
             chat_content = payload.get("text", "")
@@ -2178,24 +2230,13 @@ class AgentBase:
                 await self._create_new_session_trigger(chat_content, payload, platform, gui_mode)
                 return
 
-            # ── Rule 4: Exactly one task is waiting_for_user_reply.
-            waiting_session_ids = []
-            if self.task_manager:
-                for tid in active_task_ids:
-                    task = self.task_manager.tasks.get(tid)
-                    if task and getattr(task, "waiting_for_user_reply", False):
-                        waiting_session_ids.append(tid)
-            if len(waiting_session_ids) == 1:
-                sid = waiting_session_ids[0]
-                logger.info(f"[CHAT] Routing to single waiting session {sid}")
-                if await self._fire_session(sid, chat_content, platform, living_ui_id):
-                    return
-
-            # ── Rule 5: Active tasks exist and signal is ambiguous → conservative routing LLM.
-            # Also handles Living UI cross-references: chat is global, so a message
-            # explicitly about Living UI B while viewing Living UI A should still
-            # route to B's task. The LLM sees each session's Living UI binding and
-            # the user's current Living UI to decide.
+            # ── Rule 4: Active tasks exist → conservative routing LLM.
+            # The LLM sees each session's waiting_for_user_reply status, Living UI
+            # binding, and recent activity, and defaults to "new" when in doubt.
+            # We intentionally do NOT short-circuit on "single waiting task":
+            # tasks often park on a final "anything else?" question, and the
+            # next user message may be a completely unrelated request that
+            # deserves its own session.
             if active_task_ids:
                 active_triggers = await self.triggers.list_triggers()
                 existing_sessions = self._format_sessions_for_routing(active_task_ids, active_triggers)
@@ -2218,7 +2259,7 @@ class AgentBase:
                             return
                         logger.warning(f"[CHAT] LLM routed to {matched} but trigger not found — creating new session")
 
-            # ── Rule 6: Default — create a new session.
+            # ── Rule 5: Default — create a new session.
             await self._create_new_session_trigger(chat_content, payload, platform, gui_mode)
 
         except Exception as e:
@@ -3047,10 +3088,24 @@ class AgentBase:
                 from app.skill import skill_manager
 
                 async def _reload_skills_and_sync():
-                    """Reload skills and sync skill slash commands."""
+                    """Reload skills, sync slash commands, and broadcast the
+                    refreshed skill list so the Settings page UI updates
+                    without a manual reload."""
                     result = await skill_manager.reload()
                     if self.ui_controller:
                         self.ui_controller.sync_skill_commands()
+                        # Broadcast the refreshed list to the active adapter
+                        # (e.g. browser) so any open Settings page sees the
+                        # new / re-enabled skill immediately.
+                        adapter = getattr(self.ui_controller, "_adapter", None)
+                        broadcast_handler = getattr(adapter, "_handle_skill_list", None)
+                        if broadcast_handler is not None:
+                            try:
+                                await broadcast_handler()
+                            except Exception as e:
+                                logger.debug(
+                                    f"[SKILLS] Failed to broadcast skill list update: {e}"
+                                )
                     return result
 
                 config_watcher.register(
@@ -3058,12 +3113,6 @@ class AgentBase:
                     _reload_skills_and_sync,
                     name="skills_config.json"
                 )
-
-            # Register external_comms_config.json
-            external_comms_config_path = PROJECT_ROOT / "app" / "config" / "external_comms_config.json"
-            if external_comms_config_path.exists():
-                # We'll register this after external_comms is initialized
-                self._external_comms_config_path = external_comms_config_path
 
             # Start the config watcher
             config_watcher.start(event_loop)
@@ -3079,64 +3128,101 @@ class AgentBase:
     # =====================================
 
     async def _initialize_external_libraries(self) -> None:
-        """Import all platform modules so their @register_client decorators fire."""
+        """Configure craftos_integrations and start the external-comms manager.
+
+        Wires host config (project_root, OAuth env vars, agent name, OPENAI_API_KEY)
+        and boots the listener manager. ``initialize_manager()`` calls
+        ``autoload_integrations()`` internally during startup, so every integration's
+        @register_client / @register_handler decorators fire as a side-effect.
+        """
         try:
-            from app.external_comms.manager import _import_all_platforms
-            _import_all_platforms()
-            logger.info("[EXT LIBS] External platform modules loaded")
-        except Exception as e:
-            logger.warning(f"[EXT LIBS] Failed to load platform modules: {e}")
+            from app.onboarding import onboarding_manager
+            agent_name = onboarding_manager.state.agent_name or "CraftBot"
+        except Exception:
+            agent_name = "CraftBot"
+        _configure_integrations(
+            project_root=Path(PROJECT_ROOT),
+            logger=logger,
+            oauth={
+                # Google Workspace (Gmail / Calendar / Drive)
+                "GOOGLE_CLIENT_ID":            GOOGLE_CLIENT_ID,
+                "GOOGLE_CLIENT_SECRET":        GOOGLE_CLIENT_SECRET,
+                # Outlook (Microsoft Graph)
+                "OUTLOOK_CLIENT_ID":           OUTLOOK_CLIENT_ID,
+                # LinkedIn
+                "LINKEDIN_CLIENT_ID":          LINKEDIN_CLIENT_ID,
+                "LINKEDIN_CLIENT_SECRET":      LINKEDIN_CLIENT_SECRET,
+                # Notion (only used by the `invite` OAuth path; raw-token login needs nothing)
+                "NOTION_SHARED_CLIENT_ID":     NOTION_SHARED_CLIENT_ID,
+                "NOTION_SHARED_CLIENT_SECRET": NOTION_SHARED_CLIENT_SECRET,
+                # Slack (only used by the `invite` OAuth path)
+                "SLACK_SHARED_CLIENT_ID":      SLACK_SHARED_CLIENT_ID,
+                "SLACK_SHARED_CLIENT_SECRET":  SLACK_SHARED_CLIENT_SECRET,
+                # Telegram bot (shared-bot `invite` flow)
+                "TELEGRAM_SHARED_BOT_TOKEN":    TELEGRAM_SHARED_BOT_TOKEN,
+                "TELEGRAM_SHARED_BOT_USERNAME": TELEGRAM_SHARED_BOT_USERNAME,
+                # Telegram user (MTProto)
+                "TELEGRAM_API_ID":             TELEGRAM_API_ID,
+                "TELEGRAM_API_HASH":           TELEGRAM_API_HASH,
+            },
+            extras={"agent_name": agent_name, "openai_api_key": os.environ.get("OPENAI_API_KEY", "")},
+        )
+        self._external_comms = await initialize_manager(on_message=self._handle_external_event)
+        logger.info("[EXT LIBS] External integrations configured + manager started")
 
     # =====================================
     # Lifecycle
     # =====================================
 
-    async def run(
-        self,
-        *,
-        provider: str | None = None,
-        api_key: str = "",
-        base_url: str | None = None,
-        interface_mode: str = "tui",
-    ) -> None:
-        """
-        Launch the interactive loop for the agent.
+    async def boot(self, *, browser_ui, verbose: bool = True) -> None:
+        """Run the full production startup sequence except the UI loop.
+
+        Called from ``run()`` before the interactive interface starts.
+        Also called directly by the e2e test harness so tests get the
+        exact same setup as production without blocking on ``TUI/CLI/Browser``
+        interactive loops.
+
+        Steps:
+          1. Config watcher (hot-reload of settings.json)
+          2. MCP client + tool registration
+          3. Skills system
+          4. Usage reporter background flush
+          5. Integration manager (whatsapp_web, gmail, slack, etc.)
+          6. Optional memory processing on startup
+          7. Scheduler initialization + start
+          8. Resume triggers for tasks restored from previous session
 
         Args:
-            provider: Optional provider override passed to the interface before
-                chat starts; defaults to the provider configured during
-                initialization.
-            api_key: Optional API key presented in the interface for convenience.
-            base_url: Optional base URL for the provider.
-            interface_mode: "tui" for Textual interface, "cli" for command line.
+            verbose: When True, print human-readable per-step progress
+                (the same format ``app/main.py`` shows on app launch).
+                Tests pass False to keep output clean.
         """
-        # Check if browser startup UI is active
-        browser_ui = os.getenv("BROWSER_STARTUP_UI", "0") == "1"
 
-        def print_startup_step(step: int, total: int, message: str):
-            """Print a startup step in the appropriate format."""
+        def step(step_num: int, total: int, message: str) -> None:
+            if not verbose:
+                return
             if browser_ui:
                 # Browser mode: formatted with alignment and checkmark
-                prefix = f"  [{step:>2}/{total}]"
+                prefix = f"  [{step_num:>2}/{total}]"
                 step_width = 45
                 padded_msg = f"{message}...".ljust(step_width - len(prefix))
                 print(f"{prefix} {padded_msg}✓", flush=True)
             else:
                 # CLI mode: simple format
-                print(f"[{step}/{total}] {message}...")
+                print(f"[{step_num}/{total}] {message}...")
 
         # Startup progress messages
-        print_startup_step(3, 8, "Initializing agent")
+        step(3, 7, "Initializing agent")
 
         # Initialize settings manager and config watcher for hot-reload
         await self._initialize_config_watcher()
 
         # Initialize MCP client and register tools
-        print_startup_step(4, 8, "Connecting to MCP servers")
+        step(4, 7, "Connecting to MCP servers")
         await self._initialize_mcp()
 
         # Initialize skills system
-        print_startup_step(5, 8, "Loading skills")
+        step(5, 7, "Loading skills")
         await self._initialize_skills()
 
         # Start usage reporter background flush
@@ -3144,8 +3230,8 @@ class AgentBase:
         self._usage_reporter = get_usage_reporter()
         self._usage_reporter.start_background_flush()
 
-        # Initialize external app libraries
-        print_startup_step(6, 8, "Loading libraries")
+        # Configure integrations + start external comms manager
+        step(6, 7, "Initializing integrations")
         await self._initialize_external_libraries()
 
         # Process unprocessed events into memory at startup (if enabled)
@@ -3153,8 +3239,7 @@ class AgentBase:
             await self._process_memory_at_startup()
 
         # Initialize and start the scheduler (handles memory processing and other periodic tasks)
-        print_startup_step(7, 8, "Starting scheduler")
-        from app.config import PROJECT_ROOT
+        step(7, 7, "Starting scheduler")
         scheduler_config_path = PROJECT_ROOT / "app" / "config" / "scheduler_config.json"
         await self.scheduler.initialize(
             config_path=scheduler_config_path,
@@ -3172,20 +3257,31 @@ class AgentBase:
         # Resume triggers for tasks restored from previous session
         await self._schedule_restored_task_triggers()
 
-        # Initialize external communications (WhatsApp, Telegram)
-        print_startup_step(8, 8, "Starting communications")
-        from app.external_comms import ExternalCommsManager
-        from app.external_comms.manager import initialize_manager
-        self._external_comms = initialize_manager(self)
-        await self._external_comms.start()
+    async def run(
+        self,
+        *,
+        provider: str | None = None,
+        api_key: str = "",
+        base_url: str | None = None,
+        interface_mode: str = "tui",
+    ) -> None:
+        """
+        Launch the interactive loop for the agent.
 
-        # Register external_comms config for hot-reload (after manager is initialized)
-        if hasattr(self, "_external_comms_config_path") and self._external_comms_config_path:
-            config_watcher.register(
-                self._external_comms_config_path,
-                self._external_comms.reload,
-                name="external_comms_config.json"
-            )
+        Performs the full production startup via ``boot()``, then enters
+        the chosen interactive interface.
+
+        Args:
+            provider: Optional provider override passed to the interface before
+                chat starts; defaults to the provider configured during
+                initialization.
+            api_key: Optional API key presented in the interface for convenience.
+            base_url: Optional base URL for the provider.
+            interface_mode: "tui" for Textual interface, "cli" for command line.
+        """
+        browser_ui = os.getenv("BROWSER_STARTUP_UI", "0") == "1"
+
+        await self.boot(browser_ui=browser_ui)
 
         # Startup complete (only print in CLI mode, browser mode handles this in run.py)
         if not browser_ui:

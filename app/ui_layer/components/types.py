@@ -101,6 +101,8 @@ class ActionItem:
         input_data: Input parameters/schema for the action
         output_data: Output/result of the action
         error_message: Error message if action failed
+        selected_skills: Skills attached to the task (task-level only)
+        workflow_id: Internal workflow this task belongs to (task-level only)
     """
 
     id: str
@@ -113,6 +115,11 @@ class ActionItem:
     input_data: Optional[str] = None
     output_data: Optional[str] = None
     error_message: Optional[str] = None
+    selected_skills: List[str] = field(default_factory=list)
+    workflow_id: Optional[str] = None
+    input_tokens: Optional[int] = None
+    output_tokens: Optional[int] = None
+    cache_tokens: Optional[int] = None
 
     @property
     def is_task(self) -> bool:

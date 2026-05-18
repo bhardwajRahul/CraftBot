@@ -147,7 +147,7 @@ export function DashboardPage() {
   // Calculate statistics from actions
   const tasks = useMemo(() => actions.filter(a => a.itemType === 'task'), [actions])
   const completedTasks = useMemo(() => tasks.filter(t => t.status === 'completed').length, [tasks])
-  const failedTasks = useMemo(() => tasks.filter(t => t.status === 'error').length, [tasks])
+  const failedTasks = useMemo(() => tasks.filter(t => t.status === 'error' || t.status === 'cancelled').length, [tasks])
   const runningTasks = useMemo(() => tasks.filter(t => t.status === 'running').length, [tasks])
   const totalActions = useMemo(() => actions.filter(a => a.itemType === 'action').length, [actions])
 

@@ -98,15 +98,12 @@ class ActionRouter:
         # Base conversation mode actions
         base_actions = ["send_message", "task_start", "ignore"]
 
-        # Dynamically add messaging actions for connected platforms
+        # Dynamically add messaging actions for connected platforms.
+        # Curation (which actions match which integration) lives in the host —
+        # the package only reports which platforms are currently connected.
         try:
-            from app.external_comms.integration_discovery import (
-                get_connected_messaging_platforms,
-                get_messaging_actions_for_platforms,
-            )
-            connected_platforms = get_connected_messaging_platforms()
-            messaging_actions = get_messaging_actions_for_platforms(connected_platforms)
-            conversation_mode_actions = base_actions + messaging_actions
+            from app.data.action.integrations._routing import get_messaging_actions_for_connected
+            conversation_mode_actions = base_actions + get_messaging_actions_for_connected()
         except Exception as e:
             logger.debug(f"[ACTION] Could not discover messaging actions: {e}")
             conversation_mode_actions = base_actions
@@ -124,12 +121,31 @@ class ActionRouter:
                     "output_schema": act.output_schema
                 })
 
+        # Pull just-in-time guidance for any integrations the user named.
+        # No-ops to "" when nothing matches; never raises. See the helper
+        # in the host app — kept out of agent_core so the package stays
+        # integration-agnostic.
+        try:
+            from app.data.action.integrations._integration_essentials import (
+                get_essentials_for_message,
+            )
+            # TODO: Is keyword based deterministic search good enough?
+            integration_essentials = get_essentials_for_message(query)
+            logger.info(
+                f"[ACTION] integration essentials: "
+                f"{len(integration_essentials)} chars injected"
+            )
+        except Exception as e:
+            logger.debug(f"[ACTION] integration essentials lookup failed: {e}")
+            integration_essentials = ""
+
         # Build the instruction prompt for the LLM
         full_prompt = SELECT_ACTION_PROMPT.format(
             event_stream=self.context_engine.get_event_stream(),
             memory_context=self.context_engine.get_memory_context(query),
             query=query,
             action_candidates=self._format_candidates(action_candidates),
+            integration_essentials=integration_essentials,
         )
 
         max_format_retries = 3
@@ -219,6 +235,31 @@ class ActionRouter:
         task_state = self.context_engine.get_task_state(session_id=session_id)
         memory_context = self.context_engine.get_memory_context(query, session_id=session_id)
         event_stream_content = self.context_engine.get_event_stream(session_id=session_id)
+
+        # Pull integration essentials the same way conversation-mode does
+        # (see select_action). Without this, the task-mode LLM loses sight
+        # of integration-specific shortcuts (e.g. WhatsApp's `to: "user"`
+        # self-send) once the agent enters task mode and starts asking the
+        # user for info the integration could look up itself.
+        # Match against both the current step's query and the task state so
+        # the platform name from the original user request still triggers a
+        # match even after the per-step query is generic ("Perform the next
+        # best action...").
+        try:
+            from app.data.action.integrations._integration_essentials import (
+                get_essentials_for_message,
+            )
+            integration_essentials = get_essentials_for_message(
+                f"{query}\n{task_state}"
+            )
+            logger.info(
+                f"[ACTION] task-mode integration essentials: "
+                f"{len(integration_essentials)} chars injected"
+            )
+        except Exception as e:
+            logger.debug(f"[ACTION] task-mode essentials lookup failed: {e}")
+            integration_essentials = ""
+
         static_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
@@ -226,6 +267,7 @@ class ActionRouter:
             event_stream="",  # Empty for static prompt
             query=query,
             action_candidates=self._format_candidates(action_candidates),
+            integration_essentials=integration_essentials,
         )
         full_prompt = SELECT_ACTION_IN_TASK_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
@@ -234,6 +276,7 @@ class ActionRouter:
             event_stream=event_stream_content,
             query=query,
             action_candidates=self._format_candidates(action_candidates),
+            integration_essentials=integration_essentials,
         )
 
         max_format_retries = 3
@@ -325,6 +368,27 @@ class ActionRouter:
         task_state = self.context_engine.get_task_state(session_id=session_id)
         memory_context = self.context_engine.get_memory_context(query, session_id=session_id)
         event_stream_content = self.context_engine.get_event_stream(session_id=session_id)
+
+        # Inject integration essentials so the simple-task LLM still sees
+        # integration-specific shortcuts (e.g. WhatsApp's `to: "user"`)
+        # even after the agent has left conversation mode. Match against
+        # the per-step query AND the task state so the original platform
+        # keyword still triggers a hit.
+        try:
+            from app.data.action.integrations._integration_essentials import (
+                get_essentials_for_message,
+            )
+            integration_essentials = get_essentials_for_message(
+                f"{query}\n{task_state}"
+            )
+            logger.info(
+                f"[ACTION] simple-task integration essentials: "
+                f"{len(integration_essentials)} chars injected"
+            )
+        except Exception as e:
+            logger.debug(f"[ACTION] simple-task essentials lookup failed: {e}")
+            integration_essentials = ""
+
         static_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
             task_state=task_state,
@@ -332,6 +396,7 @@ class ActionRouter:
             event_stream="",  # Empty for static prompt
             query=query,
             action_candidates=self._format_candidates(action_candidates),
+            integration_essentials=integration_essentials,
         )
         full_prompt = SELECT_ACTION_IN_SIMPLE_TASK_PROMPT.format(
             agent_state=self.context_engine.get_agent_state(session_id=session_id),
@@ -340,6 +405,7 @@ class ActionRouter:
             event_stream=event_stream_content,
             query=query,
             action_candidates=self._format_candidates(action_candidates),
+            integration_essentials=integration_essentials,
         )
 
         max_format_retries = 3

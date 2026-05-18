@@ -22,6 +22,7 @@ from ._state import get_living_ui_manager
 _broadcast_ready_callback: Optional[Callable[[str, str, int], Awaitable[bool]]] = None
 _broadcast_progress_callback: Optional[Callable[[str, str, int, str], Awaitable[None]]] = None
 _broadcast_todos_callback: Optional[Callable[[str, List[Dict[str, Any]]], Awaitable[None]]] = None
+_broadcast_data_changed_callback: Optional[Callable[[str], Awaitable[None]]] = None
 
 # Captured at register time so cross-thread dispatchers (action handlers
 # running on a worker thread pool) can schedule coroutines onto the main loop.
@@ -32,15 +33,18 @@ def register_broadcast_callbacks(
     broadcast_ready: Callable[[str, str, int], Awaitable[bool]],
     broadcast_progress: Callable[[str, str, int, str], Awaitable[None]],
     broadcast_todos: Optional[Callable[[str, List[Dict[str, Any]]], Awaitable[None]]] = None,
+    broadcast_data_changed: Optional[Callable[[str], Awaitable[None]]] = None,
 ) -> None:
     """Register broadcast callbacks for Living UI actions to use.
 
     Called by the browser_adapter when it initializes.
     """
-    global _broadcast_ready_callback, _broadcast_progress_callback, _broadcast_todos_callback, _main_loop
+    global _broadcast_ready_callback, _broadcast_progress_callback, _broadcast_todos_callback
+    global _broadcast_data_changed_callback, _main_loop
     _broadcast_ready_callback = broadcast_ready
     _broadcast_progress_callback = broadcast_progress
     _broadcast_todos_callback = broadcast_todos
+    _broadcast_data_changed_callback = broadcast_data_changed
     try:
         _main_loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -107,6 +111,44 @@ def _dispatch_todos(project_id: str, todos: List[Dict[str, Any]]) -> bool:
 
     coro.close()
     logger.warning("[LIVING_UI] No main loop available; todo broadcast skipped")
+    return False
+
+
+async def _broadcast_data_changed_async(project_id: str) -> bool:
+    """Internal async broadcaster used by the sync dispatcher below."""
+    if _broadcast_data_changed_callback:
+        await _broadcast_data_changed_callback(project_id)
+        return True
+    return False
+
+
+def dispatch_living_ui_data_changed(project_id: str) -> bool:
+    """Thread-safe signal that a Living UI's data was modified by the agent.
+
+    Handles both calling contexts:
+      - Main asyncio loop: schedules via loop.create_task
+      - Worker thread: uses asyncio.run_coroutine_threadsafe against _main_loop
+
+    Returns True if the broadcast was scheduled, False otherwise.
+    """
+    if not _broadcast_data_changed_callback:
+        return False
+
+    coro = _broadcast_data_changed_async(project_id)
+
+    try:
+        running = asyncio.get_running_loop()
+        running.create_task(coro)
+        return True
+    except RuntimeError:
+        pass
+
+    if _main_loop is not None and _main_loop.is_running():
+        asyncio.run_coroutine_threadsafe(coro, _main_loop)
+        return True
+
+    coro.close()
+    logger.warning("[LIVING_UI] No main loop available; data-changed broadcast skipped")
     return False
 
 

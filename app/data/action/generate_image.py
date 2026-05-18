@@ -254,20 +254,12 @@ def generate_image(input_data: dict) -> dict:
 
     try:
         from google import genai
+        from google.genai import types
         from PIL import Image
         import io
         import base64
 
-        # Configure the API
-        genai.configure(api_key=api_key)
-
-        # Use Nano Banana Pro (Gemini 3 Pro Image) model
-        # Model name: gemini-3-pro-image-preview
-        model = genai.GenerativeModel("gemini-3-pro-image-preview")
-
-        # Build the generation request
-        # Nano Banana Pro uses a different API pattern - it's a multimodal model
-        # that generates images through the generate_content method
+        client = genai.Client(api_key=api_key)
 
         # Prepare reference images if provided
         image_parts = []
@@ -276,7 +268,6 @@ def generate_image(input_data: dict) -> dict:
                 try:
                     with open(ref_path, 'rb') as f:
                         image_data = f.read()
-                    # Determine mime type
                     ext = os.path.splitext(ref_path)[1].lower()
                     mime_map = {
                         '.png': 'image/png',
@@ -286,10 +277,9 @@ def generate_image(input_data: dict) -> dict:
                         '.webp': 'image/webp'
                     }
                     mime_type = mime_map.get(ext, 'image/png')
-                    image_parts.append({
-                        'mime_type': mime_type,
-                        'data': base64.b64encode(image_data).decode('utf-8')
-                    })
+                    image_parts.append(
+                        types.Part.from_bytes(data=image_data, mime_type=mime_type)
+                    )
                 except Exception:
                     pass  # Skip invalid reference images
 
@@ -306,22 +296,11 @@ Image specifications:
         if negative_prompt:
             generation_prompt += f"\n- Avoid: {negative_prompt}"
 
-        # Prepare content parts
-        content_parts = []
-        for img_part in image_parts:
-            content_parts.append({
-                'inline_data': img_part
-            })
+        content_parts = list(image_parts)
         content_parts.append(generation_prompt)
 
-        # Configure generation settings
-        generation_config = genai.types.GenerationConfig(
-            candidate_count=1,
-            # Enable image output
-        )
-
         # Safety settings
-        safety_settings = []
+        safety_settings = None
         if safety_filter_level != 'block_none':
             harm_block_threshold = {
                 'block_only_high': 'BLOCK_ONLY_HIGH',
@@ -329,18 +308,27 @@ Image specifications:
                 'block_low_and_above': 'BLOCK_LOW_AND_ABOVE'
             }.get(safety_filter_level, 'BLOCK_MEDIUM_AND_ABOVE')
 
-            for category in ['HARM_CATEGORY_HARASSMENT', 'HARM_CATEGORY_HATE_SPEECH',
-                           'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'HARM_CATEGORY_DANGEROUS_CONTENT']:
-                safety_settings.append({
-                    'category': category,
-                    'threshold': harm_block_threshold
-                })
+            safety_settings = [
+                types.SafetySetting(category=category, threshold=harm_block_threshold)
+                for category in (
+                    'HARM_CATEGORY_HARASSMENT',
+                    'HARM_CATEGORY_HATE_SPEECH',
+                    'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+                    'HARM_CATEGORY_DANGEROUS_CONTENT',
+                )
+            ]
 
-        # Generate the image
-        response = model.generate_content(
-            content_parts,
-            generation_config=generation_config,
-            safety_settings=safety_settings if safety_settings else None
+        generate_config = types.GenerateContentConfig(
+            candidate_count=1,
+            response_modalities=["TEXT", "IMAGE"],
+            image_config=types.ImageConfig(image_size=resolution),
+            safety_settings=safety_settings,
+        )
+
+        response = client.models.generate_content(
+            model="gemini-3-pro-image-preview",
+            contents=content_parts,
+            config=generate_config,
         )
 
         # Extract images from response
