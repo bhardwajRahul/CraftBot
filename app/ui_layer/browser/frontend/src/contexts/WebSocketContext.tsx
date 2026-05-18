@@ -13,6 +13,7 @@ import type {
   LivingUICreateResponse, LivingUIListResponse, LivingUILaunchResponse, LivingUIStopResponse, LivingUIDeleteResponse
 } from '../types'
 import { getWsUrl } from '../utils/connection'
+import { scheduleRefreshIframe } from '../pages/LivingUI/iframePool'
 
 // Pending attachment type for upload
 interface PendingAttachment {
@@ -986,6 +987,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             [update.projectId]: update.state,
           },
         }))
+        break
+      }
+
+      case 'living_ui_data_changed': {
+        const { projectId } = msg.data as { projectId: string }
+        if (projectId) scheduleRefreshIframe(projectId)
         break
       }
 

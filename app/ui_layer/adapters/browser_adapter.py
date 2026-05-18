@@ -928,6 +928,7 @@ class BrowserAdapter(InterfaceAdapter):
             broadcast_ready=self.broadcast_living_ui_ready,
             broadcast_progress=self.broadcast_living_ui_progress,
             broadcast_todos=self.broadcast_living_ui_todos,
+            broadcast_data_changed=self.broadcast_living_ui_data_changed,
         )
 
         # Subscribe the Living UI module to TaskManager todo updates so that
@@ -2777,6 +2778,14 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
                 "projectId": project_id,
                 "todos": todos,
             },
+        })
+
+    async def broadcast_living_ui_data_changed(self, project_id: str) -> None:
+        """Tell the browser that a Living UI's backend data was just modified
+        by the agent, so it should refresh the iframe to display new state."""
+        await self._broadcast({
+            "type": "living_ui_data_changed",
+            "data": {"projectId": project_id},
         })
 
     async def _handle_task_cancel(self, task_id: str) -> None:
