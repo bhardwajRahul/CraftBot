@@ -1675,11 +1675,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         elif msg_type == "living_ui_settings_get":
             await self._handle_living_ui_settings_get()
 
-        elif msg_type == "living_ui_project_action":
-            project_id = data.get("projectId", "")
-            action = data.get("action", "")
-            await self._handle_living_ui_project_action(project_id, action)
-
         elif msg_type == "living_ui_project_setting_update":
             project_id = data.get("projectId", "")
             setting = data.get("setting", "")
@@ -5140,12 +5135,6 @@ A quick Q&A will now begin to understand your objectives to serve you better:"""
         from app.ui_layer.settings.living_ui_settings import get_living_ui_projects
         result = get_living_ui_projects()
         await self._broadcast({"type": "living_ui_settings_get", "data": result})
-
-    async def _handle_living_ui_project_action(self, project_id: str, action: str) -> None:
-        """Execute a project action (launch/stop/delete)."""
-        from app.ui_layer.settings.living_ui_settings import living_ui_project_action
-        result = await living_ui_project_action(project_id, action)
-        await self._broadcast({"type": "living_ui_project_action", "data": result})
 
     async def _handle_living_ui_project_setting_update(self, project_id: str, setting: str, value) -> None:
         """Update a per-project setting."""
