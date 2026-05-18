@@ -221,6 +221,10 @@ IMPORTANT: Always use absolute paths when working with files in the agent file s
 - **{agent_file_system_path}/workspace/tmp/{{task_id}}/**: Temporary directory for task specific temp files (e.g., plan, draft, sketch pad). These directories are automatically cleaned up when tasks end or when the agent starts.
 - **{agent_file_system_path}/workspace/missions/**: Dedicated folders for missions (work spanning multiple tasks). Each mission has an INDEX.md for context continuity. Scan this directory at the start of complex tasks.
 
+## Skills Directory
+- **{skills_path}/**: The ONLY location for skill files and skill assets. Each skill lives in its own subfolder `{skills_path}/<skill_name>/` containing a `SKILL.md` and any supporting files the skill needs (scripts, templates, references, etc.).
+- IMPORTANT: Skills MUST NOT be stored, copied, or moved outside of the `{skills_path}/` folder. When creating, installing, editing, or generating any skill-related files, they MUST reside under `{skills_path}/<skill_name>/`.
+
 ## Important Notes
 - ALWAYS use absolute paths (e.g., {agent_file_system_path}/workspace/report.pdf) when referencing files
 - Save files to `{agent_file_system_path}/workspace/` directory if you want to persist them after task ended or across tasks
