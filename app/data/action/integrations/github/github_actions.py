@@ -1,6 +1,4 @@
 from agent_core import action
-from app.utils import csv_list
-
 
 # ------------------------------------------------------------------
 # Issues
@@ -63,6 +61,7 @@ async def get_github_issue(input_data: dict) -> dict:
 )
 async def create_github_issue(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
+    from app.utils.text import csv_list
     labels = csv_list(input_data.get("labels", ""), default=None)
     assignees = csv_list(input_data.get("assignees", ""), default=None)
     return await with_client(
@@ -138,6 +137,7 @@ async def add_github_comment(input_data: dict) -> dict:
 )
 async def add_github_labels(input_data: dict) -> dict:
     from app.data.action.integrations._helpers import with_client
+    from app.utils.text import csv_list
     labels = csv_list(input_data["labels"])
     if not labels:
         return {"status": "error", "message": "No labels provided."}
@@ -252,6 +252,7 @@ def set_github_watch_tag(input_data: dict) -> dict:
 def set_github_watch_repos(input_data: dict) -> dict:
     try:
         from craftos_integrations import get_client
+        from app.utils.text import csv_list
         client = get_client("github")
         if not client or not client.has_credentials():
             return {"status": "error", "message": "No GitHub credential. Use /github login first."}

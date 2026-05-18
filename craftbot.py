@@ -569,26 +569,26 @@ def cmd_stop() -> None:
 
 def cmd_status() -> None:
     """Print whether CraftBot is currently running and whether auto-start is installed."""
-    W = 50
+    W = max(50, len(LOG_FILE) + 12)
     pid = _read_pid()
     print(f"\n{ORANGE}╔{'═' * W}╗{RESET}")
     if pid and _is_running(pid):
         print(
-            f"{ORANGE}║{RESET}  {GREEN}▸ RUNNING{RESET}  {DIM}PID {pid}{RESET}{' ' * (W - 14 - len(str(pid)))}{ORANGE}║{RESET}"
+            f"{ORANGE}║{RESET}  {GREEN}▸ RUNNING{RESET}  {DIM}PID {pid}{RESET}{' ' * (W - 17 - len(str(pid)))}{ORANGE}║{RESET}"
         )
         print(
-            f"{ORANGE}║{RESET}  {DIM}░░ LOG: {LOG_FILE[: W - 8]}{RESET}{' ' * max(0, W - 8 - len(LOG_FILE[: W - 8]))}{ORANGE}║{RESET}"
+            f"{ORANGE}║{RESET}  {DIM}░░ LOG: {LOG_FILE[: W - 8]}{RESET}{' ' * max(0, W - 10 - len(LOG_FILE[: W - 8]))}{ORANGE}║{RESET}"
         )
     else:
         if pid:
             _remove_pid()
         print(
-            f"{ORANGE}║{RESET}  {RED}▸ NOT RUNNING{RESET}{' ' * (W - 14)}{ORANGE}║{RESET}"
+            f"{ORANGE}║{RESET}  {RED}▸ NOT RUNNING{RESET}{' ' * (W - 15)}{ORANGE}║{RESET}"
         )
     print(f"{ORANGE}║{' ' * W}║{RESET}")
     if _is_installed():
         print(
-            f"{ORANGE}║{RESET}  {GREEN}▸ AUTO-START: INSTALLED{RESET}{' ' * (W - 23)}{ORANGE}║{RESET}"
+            f"{ORANGE}║{RESET}  {GREEN}▸ AUTO-START: INSTALLED{RESET}{' ' * (W - 25)}{ORANGE}║{RESET}"
         )
     else:
         print(
