@@ -210,11 +210,61 @@ class TUIActionPanelComponent(ActionPanelProtocol):
         # TUI doesn't display output/error in the panel
         pass
 
+    async def update_item_tokens(
+        self,
+        item_id: str,
+        input_tokens: int,
+        output_tokens: int,
+        cache_tokens: int,
+    ) -> None:
+        """Update a task item's token counters. No-op for TUI."""
+        # TUI doesn't display per-task token usage in the panel
+        pass
+
     async def clear(self) -> None:
         """Clear all items."""
         self._items.clear()
         self._order.clear()
         await self._adapter.action_updates.put(ActionPanelUpdate("clear", None))
+
+    async def clear_terminal_tasks(self) -> int:
+        """
+        Remove tasks whose status is completed/error/cancelled, along with
+        their child actions. Running/waiting tasks remain visible.
+
+        Returns:
+            Number of tasks removed (does not count child actions).
+        """
+        terminal_statuses = {"completed", "error", "cancelled"}
+
+        terminal_task_ids = {
+            item_id
+            for item_id, item in self._items.items()
+            if item.item_type == "task" and item.status in terminal_statuses
+        }
+
+        if not terminal_task_ids:
+            return 0
+
+        removed_ids = [
+            item_id
+            for item_id, item in list(self._items.items())
+            if item_id in terminal_task_ids or item.task_id in terminal_task_ids
+        ]
+
+        for item_id in removed_ids:
+            self._items.pop(item_id, None)
+        self._order = [iid for iid in self._order if iid not in removed_ids]
+
+        for item_id in removed_ids:
+            await self._adapter.action_updates.put(
+                ActionPanelUpdate(
+                    "remove",
+                    TUIActionItem(id=item_id, display_name="", item_type="", status=""),
+                )
+            )
+
+        return len(terminal_task_ids)
 
     def select_task(self, task_id: Optional[str]) -> None:
         """Select a task for detail view."""

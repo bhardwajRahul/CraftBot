@@ -1,10 +1,23 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { ChevronRight, XCircle, ArrowLeft, Reply } from 'lucide-react'
+import { ChevronRight, XCircle, ArrowLeft, Reply, Plus, Square, CheckSquare } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWebSocket } from '../../contexts/WebSocketContext'
-import { StatusIndicator, Badge, Button, IconButton } from '../../components/ui'
+import { StatusIndicator, Badge, Button, IconButton, SkillCreatorModal } from '../../components/ui'
 import type { ActionItem } from '../../types'
+import { useSkillCreator } from './useSkillCreator'
 import styles from './TasksPage.module.css'
+
+function isInternalWorkflowTask(
+  item: ActionItem,
+  internalWorkflowIds: Set<string>,
+  internalSkillNames: Set<string>,
+): boolean {
+  if (item.workflowId && internalWorkflowIds.has(item.workflowId)) return true
+  for (const s of item.selectedSkills ?? []) {
+    if (internalSkillNames.has(s)) return true
+  }
+  return false
+}
 
 // Expandable value component for long text
 const MAX_VALUE_LENGTH = 80
@@ -266,16 +279,117 @@ function JsonDisplay({ content }: { content: string }) {
   )
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// Todo List Display (for task_update_todos action)
+// ─────────────────────────────────────────────────────────────────────
+
+type TodoStatus = 'pending' | 'in_progress' | 'completed' | string
+
+interface TodoEntry {
+  content: string
+  status: TodoStatus
+}
+
+function extractTodos(content: string): TodoEntry[] | null {
+  // First try the standard parser
+  const parsed = parsePythonDict(content)
+  const raw = (parsed as Record<string, unknown>)?.todos
+
+  // The parsePythonDict helper currently stores arrays as the raw "[...]"
+  // string slice, so try to recover real objects either from a real array
+  // or by parsing the array string as JSON / a small Python-literal subset.
+  let items: unknown[] | null = null
+
+  if (Array.isArray(raw)) {
+    items = raw
+  } else if (typeof raw === 'string') {
+    items = tryParseArrayLiteral(raw)
+  }
+
+  if (!items) return null
+
+  const todos: TodoEntry[] = []
+  for (const item of items) {
+    if (item && typeof item === 'object') {
+      const obj = item as Record<string, unknown>
+      const todoContent = obj.content
+      const status = obj.status
+      if (typeof todoContent === 'string' && typeof status === 'string') {
+        todos.push({ content: todoContent, status })
+      }
+    }
+  }
+
+  return todos.length > 0 ? todos : null
+}
+
+function tryParseArrayLiteral(raw: string): unknown[] | null {
+  // Direct JSON
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) return parsed
+  } catch {
+    // fall through
+  }
+
+  // Python-style array: single quotes + True/False/None — convert to JSON
+  try {
+    let normalized = raw.trim()
+    // Replace Python literals with JSON equivalents (only when whole-word)
+    normalized = normalized
+      .replace(/\bTrue\b/g, 'true')
+      .replace(/\bFalse\b/g, 'false')
+      .replace(/\bNone\b/g, 'null')
+    // Naive single-quote → double-quote swap. Good enough for our schema
+    // (todo content/status are plain words/sentences without embedded quotes
+    // most of the time); fall back to null on failure.
+    normalized = normalized.replace(/'/g, '"')
+    const parsed = JSON.parse(normalized)
+    if (Array.isArray(parsed)) return parsed
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+function TodoListDisplay({ todos }: { todos: TodoEntry[] }) {
+  return (
+    <ul className={styles.todoItems}>
+      {todos.map((todo, index) => {
+        const isCompleted = todo.status === 'completed'
+        const isInProgress = todo.status === 'in_progress'
+        const itemClass = [
+          styles.todoItem,
+          isCompleted ? styles.todoCompleted : '',
+          isInProgress ? styles.todoInProgress : '',
+        ].filter(Boolean).join(' ')
+        return (
+          <li key={index} className={itemClass}>
+            <span className={styles.todoIcon} aria-hidden="true">
+              {isCompleted ? <CheckSquare size={16} /> : <Square size={16} />}
+            </span>
+            <span className={styles.todoContent}>{todo.content}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 // Panel width limits (1:3 ratio default)
 const DEFAULT_PANEL_WIDTH = 350
 const MIN_PANEL_WIDTH = 200
 const MAX_PANEL_WIDTH = 600
 
 export function TasksPage() {
-  const { actions, messages, cancelTask, cancellingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions } = useWebSocket()
+  const { actions, messages, cancelTask, cancellingTaskId, setReplyTarget, loadOlderActions, hasMoreActions, loadingOlderActions, skillMeta } = useWebSocket()
+  const internalWorkflowIds = useMemo(() => new Set(skillMeta.internalWorkflowIds), [skillMeta.internalWorkflowIds])
+  const internalSkillNames = useMemo(() => new Set(skillMeta.internalSkillNames), [skillMeta.internalSkillNames])
+  const reservedSkillNames = useMemo(() => new Set(skillMeta.reservedSkillNames), [skillMeta.reservedSkillNames])
   const navigate = useNavigate()
   const [selectedItem, setSelectedItem] = useState<ActionItem | null>(null)
   const [mobileShowDetail, setMobileShowDetail] = useState(false)
+  const skillCreator = useSkillCreator()
 
   // Resizable panel state
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
@@ -510,6 +624,15 @@ export function TasksPage() {
                     >
                       {cancellingTaskId === selectedItem.id ? 'Cancelling...' : 'Cancel Task'}
                     </Button>
+                  ) : selectedItem.status === 'completed' && !isInternalWorkflowTask(selectedItem, internalWorkflowIds, internalSkillNames) ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      icon={<Plus size={14} />}
+                      onClick={() => skillCreator.open(selectedItem)}
+                    >
+                      Create Skill
+                    </Button>
                   ) : (selectedItem.status === 'error' || selectedItem.status === 'cancelled') && (
                     <Badge variant="error">Aborted</Badge>
                   )}
@@ -535,6 +658,24 @@ export function TasksPage() {
                   <dd>{formatTimestamp(selectedItem.createdAt)}</dd>
                   <dt>Duration</dt>
                   <dd>{formatDuration(selectedItem.duration)}</dd>
+                  {selectedItem.itemType === 'task' && selectedItem.inputTokens != null && (
+                    <>
+                      <dt>Input Tokens</dt>
+                      <dd>{selectedItem.inputTokens.toLocaleString()}</dd>
+                    </>
+                  )}
+                  {selectedItem.itemType === 'task' && selectedItem.outputTokens != null && (
+                    <>
+                      <dt>Output Tokens</dt>
+                      <dd>{selectedItem.outputTokens.toLocaleString()}</dd>
+                    </>
+                  )}
+                  {selectedItem.itemType === 'task' && selectedItem.cacheTokens != null && (
+                    <>
+                      <dt>Cache Tokens</dt>
+                      <dd>{selectedItem.cacheTokens.toLocaleString()}</dd>
+                    </>
+                  )}
                 </dl>
               </div>
 
@@ -549,12 +690,23 @@ export function TasksPage() {
                 )
               ) : (
                 <>
-                  {selectedItem.input && (
-                    <div className={styles.detailSection}>
-                      <h4>Input</h4>
-                      <JsonDisplay content={selectedItem.input} />
-                    </div>
-                  )}
+                  {selectedItem.input && (() => {
+                    const normalizedName = (selectedItem.name || '')
+                      .toLowerCase()
+                      .replace(/[\s-]+/g, '_')
+                    const isTodoAction =
+                      selectedItem.itemType === 'action' &&
+                      normalizedName === 'task_update_todos'
+                    const todos = isTodoAction ? extractTodos(selectedItem.input) : null
+                    return (
+                      <div className={styles.detailSection}>
+                        <h4>{todos ? 'Todos' : 'Input'}</h4>
+                        {todos
+                          ? <TodoListDisplay todos={todos} />
+                          : <JsonDisplay content={selectedItem.input} />}
+                      </div>
+                    )
+                  })()}
 
                   {selectedItem.output && (
                     <div className={styles.detailSection}>
@@ -581,6 +733,17 @@ export function TasksPage() {
           </div>
         )}
       </div>
+
+      <SkillCreatorModal
+        isOpen={skillCreator.isOpen}
+        sourceSkills={skillCreator.sourceSkills}
+        reservedNames={reservedSkillNames}
+        status={skillCreator.status}
+        serverError={skillCreator.serverError}
+        successInfo={skillCreator.successInfo}
+        onClose={skillCreator.close}
+        onSubmit={skillCreator.submit}
+      />
     </div>
   )
 }

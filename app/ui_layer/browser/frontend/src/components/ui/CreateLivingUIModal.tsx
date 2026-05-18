@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { X, Sparkles, Download, Loader2, Package, FolderInput, Upload, Check } from 'lucide-react'
+import { X, Sparkles, Download, Loader2, Package, FolderInput, Upload, Check, Search } from 'lucide-react'
 import { Button } from './Button'
 import { useSettingsWebSocket } from '../../pages/Settings/useSettingsWebSocket'
 import type { LivingUICreateRequest } from '../../types'
@@ -48,33 +48,10 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   // Import tab state
   const [importSource, setImportSource] = useState('')
   const [importing, setImporting] = useState(false)
+  const [dropActive, setDropActive] = useState(false)
 
   // Marketplace state
   const { send, onMessage, isConnected } = useSettingsWebSocket()
-
-  // Upload ZIP → stage on server → send to agent via WebSocket
-  const handleZipUpload = async (file: File) => {
-    setImporting(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const zipName = file.name.replace('.zip', '').replace(/^livingui_/, '').replace(/_[a-f0-9]+$/, '')
-      formData.append('name', zipName)
-      const resp = await fetch('/api/living-ui/import', { method: 'POST', body: formData })
-      const result = await resp.json()
-      if (result.success && result.path) {
-        // File staged — send to agent flow
-        send('living_ui_import', { source: result.path, name: result.name || zipName })
-        onClose()
-      } else {
-        alert(result.error || 'Upload failed')
-      }
-    } catch (err) {
-      alert('Upload failed: ' + (err instanceof Error ? err.message : err))
-    } finally {
-      setImporting(false)
-    }
-  }
   const [apps, setApps] = useState<MarketplaceApp[]>([])
   const [marketplaceLoading, setMarketplaceLoading] = useState(false)
   const [marketplaceError, setMarketplaceError] = useState<string | null>(null)
@@ -83,6 +60,12 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   const [configuringApp, setConfiguringApp] = useState<MarketplaceApp | null>(null)
   const installTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const [customValues, setCustomValues] = useState<Record<string, string>>({})
+
+  // Marketplace filter state
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set())
+  const [thumbFailures, setThumbFailures] = useState<Set<string>>(new Set())
+  const [tagsExpanded, setTagsExpanded] = useState(false)
 
   const nameInputRef = useRef<HTMLInputElement>(null)
   const wordCount = useMemo(() => countWords(description), [description])
@@ -95,6 +78,29 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   // Accumulate projectIds from completed installs — navigate only when all installs finish
   const pendingNavigationsRef = useRef<string[]>([])
 
+  // Upload ZIP → stage on server → send to agent via WebSocket
+  const handleZipUpload = async (file: File) => {
+    setImporting(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const zipName = file.name.replace('.zip', '').replace(/^livingui_/, '').replace(/_[a-f0-9]+$/, '')
+      formData.append('name', zipName)
+      const resp = await fetch('/api/living-ui/import', { method: 'POST', body: formData })
+      const result = await resp.json()
+      if (result.success && result.path) {
+        send('living_ui_import', { source: result.path, name: result.name || zipName })
+        onClose()
+      } else {
+        alert(result.error || 'Upload failed')
+      }
+    } catch (err) {
+      alert('Upload failed: ' + (err instanceof Error ? err.message : err))
+    } finally {
+      setImporting(false)
+    }
+  }
+
   // Reset form fields on open — intentionally NOT resetting installingIds/completedIds
   // so ongoing installs remain visible when user closes and reopens the modal
   useEffect(() => {
@@ -104,7 +110,8 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
       setErrors({})
       setConfiguringApp(null)
       setCustomValues({})
-      // Fetch marketplace if on that tab
+      setSearchQuery('')
+      setSelectedTags(new Set())
       if (activeTab === 'marketplace' && apps.length === 0) {
         fetchMarketplace()
       }
@@ -144,7 +151,6 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
         console.log('[CreateLivingUIModal] received living_ui_marketplace_install:', data)
         const finishedId = data.appId as string | undefined
         if (data.status === 'success') {
-          // Queue navigation — don't interrupt the user until all installs are done
           const projectId = data.project?.id
           if (projectId) pendingNavigationsRef.current.push(projectId)
 
@@ -163,7 +169,6 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
             if (finishedId) next.delete(finishedId)
             else next.clear()
             if (next.size === 0) {
-              // All done — navigate to the last completed project then close
               const lastProjectId = pendingNavigationsRef.current.at(-1)
               pendingNavigationsRef.current = []
               if (lastProjectId && onInstalledRef.current) {
@@ -196,15 +201,50 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
     send('living_ui_marketplace_list')
   }, [send])
 
+  // Derive tag list from catalogue, sorted by frequency (popular first)
+  const allTags = useMemo(() => {
+    const counts = new Map<string, number>()
+    apps.forEach(a => a.tags?.forEach(t => counts.set(t, (counts.get(t) || 0) + 1)))
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([t]) => t)
+  }, [apps])
+
+  const TAG_COLLAPSE_LIMIT = 6
+  const visibleTags = tagsExpanded ? allTags : allTags.slice(0, TAG_COLLAPSE_LIMIT)
+  const hiddenTagCount = Math.max(0, allTags.length - TAG_COLLAPSE_LIMIT)
+
+  const filteredApps = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return apps.filter(app => {
+      if (q) {
+        const hay = `${app.name} ${app.description} ${(app.tags || []).join(' ')}`.toLowerCase()
+        if (!hay.includes(q)) return false
+      }
+      if (selectedTags.size > 0) {
+        const tags = app.tags || []
+        if (!tags.some(t => selectedTags.has(t))) return false
+      }
+      return true
+    })
+  }, [apps, searchQuery, selectedTags])
+
+  const toggleTag = (tag: string) => {
+    setSelectedTags(prev => {
+      const next = new Set(prev)
+      if (next.has(tag)) next.delete(tag)
+      else next.add(tag)
+      return next
+    })
+  }
+
   const handleAddClick = (app: MarketplaceApp) => {
     if (app.customizable && app.customizable.length > 0) {
-      // Show config form
       setConfiguringApp(app)
       const defaults: Record<string, string> = {}
       app.customizable.forEach(f => { defaults[f.key] = f.default })
       setCustomValues(defaults)
     } else {
-      // Install directly
       doInstall(app, {})
     }
   }
@@ -254,9 +294,15 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
   if (!isOpen && installingIds.size === 0) return null
   if (!isOpen) return <></> // mounted but invisible — keeps onMessage listeners alive
 
+  const tabsConfig = [
+    { id: 'marketplace' as const, label: 'Marketplace', icon: <Package size={14} /> },
+    { id: 'custom' as const, label: 'Create Custom', icon: <Sparkles size={14} /> },
+    { id: 'import' as const, label: 'Import', icon: <FolderInput size={14} /> },
+  ]
+
   return (
     <div className={styles.modalOverlay}>
-      <div className={styles.modalContent} style={{ maxWidth: '640px' }}>
+      <div className={styles.modalContent}>
         <div className={styles.modalHeader}>
           <div className={styles.headerTitle}>
             <Sparkles size={20} className={styles.headerIcon} />
@@ -267,26 +313,12 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
           </button>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-primary)', padding: '0 var(--space-4)' }}>
-          {([
-            { id: 'marketplace' as const, label: 'Marketplace', icon: <Package size={14} /> },
-            { id: 'custom' as const, label: 'Create Custom', icon: <Sparkles size={14} /> },
-            { id: 'import' as const, label: 'Import', icon: <FolderInput size={14} /> },
-          ]).map(tab => (
+        <div className={styles.tabs}>
+          {tabsConfig.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: 'var(--space-2) var(--space-4)',
-                background: 'none', border: 'none',
-                borderBottom: activeTab === tab.id ? '2px solid var(--color-primary)' : '2px solid transparent',
-                color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-muted)',
-                cursor: 'pointer',
-                fontWeight: activeTab === tab.id ? 'var(--font-semibold)' : 'var(--font-normal)',
-                fontSize: 'var(--text-sm)', fontFamily: 'inherit',
-                display: 'flex', alignItems: 'center', gap: 'var(--space-2)',
-              }}
+              className={`${styles.tab} ${activeTab === tab.id ? styles.tabActive : ''}`}
             >
               {tab.icon}
               {tab.label}
@@ -296,165 +328,202 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
 
         {/* Marketplace Tab */}
         {activeTab === 'marketplace' && !configuringApp && (
-          <div className={styles.modalBody} style={{ minHeight: '300px', maxHeight: '60vh', overflowY: 'auto' }}>
-            {marketplaceLoading ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
-                <Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} />
+          <div className={styles.marketplaceBody}>
+            <div className={styles.toolbar}>
+              <div className={styles.searchWrapper}>
+                <Search size={14} className={styles.searchIcon} />
+                <input
+                  className={styles.searchInput}
+                  placeholder="Search apps..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                />
               </div>
-            ) : marketplaceError ? (
-              <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
-                <p style={{ marginBottom: 'var(--space-3)' }}>{marketplaceError}</p>
-                <Button size="sm" variant="secondary" onClick={fetchMarketplace}>Retry</Button>
-              </div>
-            ) : apps.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--text-muted)' }}>
-                <Package size={32} style={{ marginBottom: 'var(--space-3)', opacity: 0.5 }} />
-                <p>No apps available yet.</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                {apps.map(app => {
-                  const appKey = app.folder || app.id
-                  return (
-                  <div key={app.id} style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 'var(--space-3)',
-                    padding: 'var(--space-3)',
-                    background: 'var(--bg-tertiary)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--border-primary)',
-                  }}>
-                    {app.preview ? (
-                      <img src={app.preview} alt={app.name} referrerPolicy="no-referrer"
-                        style={{ width: 80, height: 60, borderRadius: 'var(--radius-sm)', objectFit: 'cover', background: 'var(--bg-secondary)' }}
-                        onError={(e) => { (e.target as HTMLImageElement).src = ''; (e.target as HTMLImageElement).style.display = 'none' }} />
-                    ) : (
-                      <div style={{ width: 80, height: 60, borderRadius: 'var(--radius-sm)', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Package size={24} style={{ color: 'var(--text-muted)' }} />
-                      </div>
-                    )}
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 'var(--font-semibold)', fontSize: 'var(--text-sm)', marginBottom: '2px' }}>{app.name}</div>
-                      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', lineHeight: 1.4 }}>{app.description}</div>
-                      {app.tags && app.tags.length > 0 && (
-                        <div style={{ display: 'flex', gap: '4px', marginTop: '4px' }}>
-                          {app.tags.map(tag => (
-                            <span key={tag} style={{ fontSize: '10px', padding: '1px 6px', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)', color: 'var(--text-muted)' }}>{tag}</span>
-                          ))}
+              {allTags.length > 0 && (
+                <div className={styles.tagsRow}>
+                  <span className={styles.tagsLabel}>Tags:</span>
+                  <button
+                    className={`${styles.tagChip} ${selectedTags.size === 0 ? styles.tagChipActive : ''}`}
+                    onClick={() => setSelectedTags(new Set())}
+                  >
+                    All
+                  </button>
+                  {visibleTags.map(tag => (
+                    <button
+                      key={tag}
+                      className={`${styles.tagChip} ${selectedTags.has(tag) ? styles.tagChipActive : ''}`}
+                      onClick={() => toggleTag(tag)}
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                  {hiddenTagCount > 0 && (
+                    <button
+                      className={styles.tagChip}
+                      onClick={() => setTagsExpanded(v => !v)}
+                    >
+                      {tagsExpanded ? 'Show less' : `+${hiddenTagCount} more`}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className={styles.marketplaceContent}>
+              {marketplaceLoading ? (
+                <div className={styles.stateCenter}>
+                  <Loader2 size={24} className={styles.spinner} />
+                </div>
+              ) : marketplaceError ? (
+                <div className={styles.stateCenter}>
+                  <p className={styles.stateText}>{marketplaceError}</p>
+                  <Button size="sm" variant="secondary" onClick={fetchMarketplace}>Retry</Button>
+                </div>
+              ) : apps.length === 0 ? (
+                <div className={styles.stateCenter}>
+                  <Package size={32} className={styles.stateIcon} />
+                  <p className={styles.stateText}>No apps available yet.</p>
+                </div>
+              ) : filteredApps.length === 0 ? (
+                <div className={styles.stateCenter}>
+                  <Search size={32} className={styles.stateIcon} />
+                  <p className={styles.stateText}>No apps match your filters.</p>
+                </div>
+              ) : (
+                <div className={styles.appsGrid}>
+                  {filteredApps.map(app => {
+                    const appKey = app.folder || app.id
+                    const installing = installingIds.has(appKey)
+                    const installedCount = installCounts.get(appKey) || 0
+                    return (
+                      <div key={app.id} className={styles.appCard}>
+                        {app.preview && !thumbFailures.has(appKey) ? (
+                          <img
+                            src={app.preview}
+                            alt={app.name}
+                            referrerPolicy="no-referrer"
+                            className={styles.appCardThumb}
+                            onError={() => setThumbFailures(prev => new Set(prev).add(appKey))}
+                          />
+                        ) : (
+                          <div className={styles.appCardPlaceholder}>
+                            <Package size={32} className={styles.appCardPlaceholderIcon} />
+                          </div>
+                        )}
+                        <div className={styles.appCardBody}>
+                          <div className={styles.appCardHeader}>
+                            <span className={styles.appCardName}>{app.name}</span>
+                            {app.version && <span className={styles.appCardVersion}>v{app.version}</span>}
+                          </div>
+                          {app.tags && app.tags.length > 0 && (
+                            <div className={styles.appCardTags}>
+                              {app.tags.map(tag => (
+                                <span key={tag} className={styles.tag}>{tag}</span>
+                              ))}
+                            </div>
+                          )}
+                          <div className={styles.appCardDesc}>{app.description}</div>
                         </div>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px', flexShrink: 0 }}>
-                      {(installCounts.get(appKey) || 0) > 0 && !installingIds.has(appKey) && (
-                        <span style={{ fontSize: '10px', color: 'var(--color-success, #22c55e)', display: 'flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }}>
-                          <Check size={10} />
-                          {(installCounts.get(appKey) || 0) === 1 ? 'Installed' : `Installed ×${installCounts.get(appKey)}`}
-                        </span>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="primary"
-                        icon={installingIds.has(appKey) ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}
-                        onClick={() => !installingIds.has(appKey) && handleAddClick(app)}
-                        disabled={installingIds.has(appKey)}
-                      >
-                        {installingIds.has(appKey) ? 'Installing...' : 'Add'}
-                      </Button>
-                    </div>
-                  </div>
-                  )
-                })}
-              </div>
-            )}
+                        <div className={styles.appCardFooter}>
+                          {installedCount > 0 && !installing ? (
+                            <span className={styles.installedBadge}>
+                              <Check size={10} />
+                              {installedCount === 1 ? 'Installed' : `Installed ×${installedCount}`}
+                            </span>
+                          ) : <span />}
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            icon={installing ? <Loader2 size={14} className={styles.spinner} /> : <Download size={14} />}
+                            onClick={() => !installing && handleAddClick(app)}
+                            disabled={installing}
+                          >
+                            {installing ? 'Installing...' : 'Add'}
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
         {/* Marketplace Config Form (shown when app has customizable fields) */}
         {configuringApp && (
-          <div className={styles.modalBody}>
-            <div style={{ marginBottom: 'var(--space-3)' }}>
-              <h4 style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--font-semibold)', marginBottom: 'var(--space-1)' }}>
-                Configure: {configuringApp.name}
-              </h4>
-              <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                Customize before installing
-              </p>
-            </div>
-            {configuringApp.customizable?.map(field => (
-              <div key={field.key} style={{ marginBottom: 'var(--space-3)' }}>
-                <label style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--font-medium)', display: 'block', marginBottom: 'var(--space-1)' }}>
-                  {field.label}
-                </label>
-                <input
-                  type={field.type || 'text'}
-                  value={customValues[field.key] || ''}
-                  onChange={(e) => setCustomValues(prev => ({ ...prev, [field.key]: e.target.value }))}
-                  placeholder={field.placeholder || field.default}
-                  style={{
-                    width: '100%',
-                    padding: 'var(--space-2) var(--space-3)',
-                    border: '1px solid var(--border-primary)',
-                    borderRadius: 'var(--radius-md)',
-                    background: 'var(--bg-primary)',
-                    color: 'var(--text-primary)',
-                    fontSize: 'var(--text-sm)',
-                    fontFamily: 'inherit',
-                  }}
-                />
+          <div className={styles.configBody}>
+            <div className={styles.configCard}>
+              <div className={styles.configHeader}>
+                <h4>Configure: {configuringApp.name}</h4>
+                <p>Customize before installing</p>
               </div>
-            ))}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
-              <Button variant="secondary" onClick={() => setConfiguringApp(null)}>Back</Button>
-              <Button variant="primary" icon={<Download size={14} />} onClick={() => doInstall(configuringApp, customValues)}>
-                Install
-              </Button>
+              {configuringApp.customizable?.map(field => (
+                <div key={field.key} className={styles.formGroup} style={{ marginBottom: 'var(--space-3)' }}>
+                  <label className={styles.label}>{field.label}</label>
+                  <input
+                    type={field.type || 'text'}
+                    className={styles.input}
+                    value={customValues[field.key] || ''}
+                    onChange={(e) => setCustomValues(prev => ({ ...prev, [field.key]: e.target.value }))}
+                    placeholder={field.placeholder || field.default}
+                  />
+                </div>
+              ))}
+              <div className={styles.configActions}>
+                <Button variant="secondary" onClick={() => setConfiguringApp(null)}>Back</Button>
+                <Button variant="primary" icon={<Download size={14} />} onClick={() => doInstall(configuringApp, customValues)}>
+                  Install
+                </Button>
+              </div>
             </div>
           </div>
         )}
 
         {/* Custom Tab */}
         {activeTab === 'custom' && (
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             <div className={styles.modalBody}>
-              <div className={styles.formGroup}>
-                <label htmlFor="living-ui-name" className={styles.label}>
-                  Project Name <span className={styles.required}>*</span>
-                </label>
-                <input
-                  ref={nameInputRef}
-                  id="living-ui-name"
-                  type="text"
-                  className={`${styles.input} ${errors.name ? styles.inputError : ''}`}
-                  placeholder="e.g., World News Dashboard"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  maxLength={50}
-                />
-                {errors.name && <span className={styles.errorText}>{errors.name}</span>}
-              </div>
-
-              <div className={styles.formGroup}>
-                <label htmlFor="living-ui-description" className={styles.label}>
-                  What should this UI do? <span className={styles.required}>*</span>
-                </label>
-                <textarea
-                  id="living-ui-description"
-                  className={`${styles.textareaLarge} ${errors.description ? styles.inputError : ''}`}
-                  placeholder="Describe what you want the Living UI to display and do. Be specific about the data, layout, interactions, styling preferences, and any external APIs or data sources to use..."
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  rows={10}
-                />
-                <div className={styles.descriptionFooter}>
-                  <span className={styles.hint}>
-                    The clearer and more detailed your requirements, the more accurate the Living UI will be.
-                  </span>
-                  <span className={`${styles.wordCount} ${wordCount > MAX_WORDS ? styles.wordCountError : ''}`}>
-                    {wordCount.toLocaleString()} / {MAX_WORDS.toLocaleString()} words
-                  </span>
+              <div className={styles.centeredForm}>
+                <div className={styles.formGroup}>
+                  <label htmlFor="living-ui-name" className={styles.label}>
+                    Project Name <span className={styles.required}>*</span>
+                  </label>
+                  <input
+                    ref={nameInputRef}
+                    id="living-ui-name"
+                    type="text"
+                    className={`${styles.input} ${errors.name ? styles.inputError : ''}`}
+                    placeholder="e.g., World News Dashboard"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    maxLength={50}
+                  />
+                  {errors.name && <span className={styles.errorText}>{errors.name}</span>}
                 </div>
-                {errors.description && <span className={styles.errorText}>{errors.description}</span>}
+
+                <div className={styles.formGroup}>
+                  <label htmlFor="living-ui-description" className={styles.label}>
+                    What should this UI do? <span className={styles.required}>*</span>
+                  </label>
+                  <textarea
+                    id="living-ui-description"
+                    className={`${styles.textareaLarge} ${errors.description ? styles.inputError : ''}`}
+                    placeholder="Describe what you want the Living UI to display and do. Be specific about the data, layout, interactions, styling preferences, and any external APIs or data sources to use..."
+                    value={description}
+                    onChange={e => setDescription(e.target.value)}
+                    rows={12}
+                  />
+                  <div className={styles.descriptionFooter}>
+                    <span className={styles.hint}>
+                      The clearer and more detailed your requirements, the more accurate the Living UI will be.
+                    </span>
+                    <span className={`${styles.wordCount} ${wordCount > MAX_WORDS ? styles.wordCountError : ''}`}>
+                      {wordCount.toLocaleString()} / {MAX_WORDS.toLocaleString()} words
+                    </span>
+                  </div>
+                  {errors.description && <span className={styles.errorText}>{errors.description}</span>}
+                </div>
               </div>
             </div>
 
@@ -471,75 +540,67 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
 
         {/* Import Tab — URL/path + ZIP upload */}
         {activeTab === 'import' && (
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             <div className={styles.modalBody}>
-              <div className={styles.formGroup}>
-                <label className={styles.label}>
-                  GitHub URL or Local Path
-                </label>
-                <input
-                  type="text"
-                  className={styles.input}
-                  placeholder="https://github.com/user/repo or /path/to/local/app"
-                  value={importSource}
-                  onChange={e => setImportSource(e.target.value)}
-                />
-                <span className={styles.hint}>
-                  Go · Node.js · Python · Rust · Docker · Static sites
-                </span>
-              </div>
+              <div className={styles.centeredForm}>
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>
+                    GitHub URL or Local Path
+                  </label>
+                  <input
+                    type="text"
+                    className={styles.input}
+                    placeholder="https://github.com/user/repo or /path/to/local/app"
+                    value={importSource}
+                    onChange={e => setImportSource(e.target.value)}
+                  />
+                  <span className={styles.hint}>
+                    Go · Node.js · Python · Rust · Docker · Static sites
+                  </span>
+                </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', margin: 'var(--space-3) 0', color: 'var(--text-muted)', fontSize: 'var(--text-xs)' }}>
-                <div style={{ flex: 1, height: 1, background: 'var(--border-primary)' }} />
-                <span>or</span>
-                <div style={{ flex: 1, height: 1, background: 'var(--border-primary)' }} />
-              </div>
+                <div className={styles.orDivider}>
+                  <span>or</span>
+                </div>
 
-              <div
-                style={{
-                  border: '2px dashed var(--border-primary)',
-                  borderRadius: 'var(--radius-lg)',
-                  padding: 'var(--space-6) var(--space-4)',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  transition: 'border-color 0.2s, background 0.2s',
-                }}
-                onClick={() => {
-                  const input = document.createElement('input')
-                  input.type = 'file'
-                  input.accept = '.zip'
-                  input.onchange = (e) => {
-                    const file = (e.target as HTMLInputElement).files?.[0]
-                    if (file) handleZipUpload(file)
-                  }
-                  input.click()
-                }}
-                onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.background = 'var(--bg-tertiary)' }}
-                onDragLeave={(e) => { e.currentTarget.style.borderColor = 'var(--border-primary)'; e.currentTarget.style.background = '' }}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  e.currentTarget.style.borderColor = 'var(--border-primary)'
-                  e.currentTarget.style.background = ''
-                  const file = e.dataTransfer.files[0]
-                  if (file && file.name.endsWith('.zip')) handleZipUpload(file)
-                }}
-              >
-                {importing ? (
-                  <>
-                    <Loader2 size={24} style={{ color: 'var(--color-primary)', animation: 'spin 1s linear infinite', marginBottom: 'var(--space-2)' }} />
-                    <p style={{ margin: 0, fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>Importing...</p>
-                  </>
-                ) : (
-                  <>
-                    <Upload size={24} style={{ color: 'var(--text-muted)', marginBottom: 'var(--space-2)' }} />
-                    <p style={{ margin: 0, fontSize: 'var(--text-sm)', fontWeight: 'var(--font-medium)', color: 'var(--text-primary)' }}>
-                      Drop a ZIP file here or click to browse
-                    </p>
-                    <p style={{ margin: 'var(--space-1) 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                      Import a previously exported Living UI
-                    </p>
-                  </>
-                )}
+                <div
+                  className={`${styles.dropZone} ${dropActive ? styles.dropZoneDragOver : ''}`}
+                  onClick={() => {
+                    const input = document.createElement('input')
+                    input.type = 'file'
+                    input.accept = '.zip'
+                    input.onchange = (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0]
+                      if (file) handleZipUpload(file)
+                    }
+                    input.click()
+                  }}
+                  onDragOver={(e) => { e.preventDefault(); setDropActive(true) }}
+                  onDragLeave={() => setDropActive(false)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setDropActive(false)
+                    const file = e.dataTransfer.files[0]
+                    if (file && file.name.endsWith('.zip')) handleZipUpload(file)
+                  }}
+                >
+                  {importing ? (
+                    <>
+                      <Loader2 size={24} className={styles.spinner} />
+                      <p className={styles.dropZoneSub}>Importing...</p>
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={24} className={styles.dropZoneIcon} />
+                      <p className={styles.dropZoneLabel}>
+                        Drop a ZIP file here or click to browse
+                      </p>
+                      <p className={styles.dropZoneSub}>
+                        Import a previously exported Living UI
+                      </p>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -549,7 +610,7 @@ export function CreateLivingUIModal({ isOpen, onClose, onSubmit, onInstalled }: 
               </Button>
               <Button
                 variant="primary"
-                icon={importing ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <FolderInput size={16} />}
+                icon={importing ? <Loader2 size={16} className={styles.spinner} /> : <FolderInput size={16} />}
                 disabled={!importSource.trim() || importing}
                 onClick={async () => {
                   setImporting(true)

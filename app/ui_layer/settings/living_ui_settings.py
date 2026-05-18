@@ -38,42 +38,6 @@ def get_living_ui_projects() -> Dict[str, Any]:
         return {"success": False, "error": str(e), "projects": []}
 
 
-async def living_ui_project_action(project_id: str, action: str) -> Dict[str, Any]:
-    """Execute an action on a Living UI project.
-
-    Args:
-        project_id: The project ID
-        action: One of 'launch', 'stop', 'delete'
-
-    Returns:
-        Dict with 'success' and optional 'error'
-    """
-    try:
-        from app.living_ui import get_living_ui_manager
-
-        manager = get_living_ui_manager()
-        if not manager:
-            return {"success": False, "error": "Living UI manager not initialized"}
-
-        project = manager.get_project(project_id)
-        if not project:
-            return {"success": False, "error": f"Project not found: {project_id}"}
-
-        if action == 'launch':
-            success = await manager.launch_project(project_id)
-            return {"success": success, "error": None if success else "Launch failed"}
-        elif action == 'stop':
-            success = await manager.stop_project(project_id)
-            return {"success": success}
-        elif action == 'delete':
-            success = await manager.delete_project(project_id)
-            return {"success": success}
-        else:
-            return {"success": False, "error": f"Unknown action: {action}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
 def update_project_setting(project_id: str, setting: str, value: Any) -> Dict[str, Any]:
     """Update a per-project setting.
 

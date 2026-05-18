@@ -20,6 +20,7 @@ from .broadcast import (
     register_broadcast_callbacks,
     broadcast_living_ui_ready,
     broadcast_living_ui_progress,
+    dispatch_living_ui_data_changed,
     make_todo_broadcast_hook,
 )
 from .actions import restart_living_ui
@@ -32,6 +33,7 @@ __all__ = [
     'register_broadcast_callbacks',
     'broadcast_living_ui_ready',
     'broadcast_living_ui_progress',
+    'dispatch_living_ui_data_changed',
     'make_todo_broadcast_hook',
     'restart_living_ui',
 ]

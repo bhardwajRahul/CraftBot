@@ -203,11 +203,14 @@ class ContextEngine:
     def create_system_file_system_context(self) -> str:
         """Create a system message block with agent file system context."""
         try:
-            from app.config import AGENT_FILE_SYSTEM_PATH
+            from app.config import AGENT_FILE_SYSTEM_PATH, PROJECT_ROOT
+            skills_path = PROJECT_ROOT / "skills"
         except ImportError:
             AGENT_FILE_SYSTEM_PATH = "."
+            skills_path = "./skills"
         return AGENT_FILE_SYSTEM_CONTEXT_PROMPT.format(
             agent_file_system_path=AGENT_FILE_SYSTEM_PATH,
+            skills_path=skills_path,
         )
 
     def create_system_user_profile(self) -> str:

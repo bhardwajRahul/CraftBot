@@ -20,7 +20,7 @@
         "model": "MiniMax-Text-01"
     },
     "moonshot": {
-        "model": "moonshot-v1-8k"
+        "model": "kimi-k2.5"
     },
     "remote": {
         "model": "llama3"
