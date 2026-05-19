@@ -210,6 +210,17 @@ class TUIActionPanelComponent(ActionPanelProtocol):
         # TUI doesn't display output/error in the panel
         pass
 
+    async def update_item_tokens(
+        self,
+        item_id: str,
+        input_tokens: int,
+        output_tokens: int,
+        cache_tokens: int,
+    ) -> None:
+        """Update a task item's token counters. No-op for TUI."""
+        # TUI doesn't display per-task token usage in the panel
+        pass
+
     async def clear(self) -> None:
         """Clear all items."""
         self._items.clear()

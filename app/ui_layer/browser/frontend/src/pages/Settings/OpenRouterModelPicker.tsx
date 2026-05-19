@@ -48,6 +48,7 @@ export function useOpenRouterCatalog(
   const [error, setError] = useState<string | null>(null)
   const [fetchedAt, setFetchedAt] = useState<number | null>(null)
   const requestedRef = useRef(false)
+  const prevBaseUrlRef = useRef(baseUrl)
 
   useEffect(() => {
     const cleanup = onMessage('openrouter_models_get', (data: unknown) => {
@@ -66,6 +67,11 @@ export function useOpenRouterCatalog(
 
   // Fetch once after we go enabled+connected. Re-fetch when baseUrl changes.
   useEffect(() => {
+    // Reset the guard when baseUrl changes so the new endpoint is fetched.
+    if (prevBaseUrlRef.current !== baseUrl) {
+      prevBaseUrlRef.current = baseUrl
+      requestedRef.current = false
+    }
     if (!isConnected || !enabled || requestedRef.current) return
     requestedRef.current = true
     setLoading(true)

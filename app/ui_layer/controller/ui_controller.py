@@ -109,6 +109,15 @@ class UIController:
         # Register enabled skills as slash commands
         self._register_skill_commands()
 
+        # Expose the event bus on global STATE so module-level hooks
+        # (e.g. _report_usage in app/llm/interface.py) can emit UI events
+        # without needing a controller handle.
+        try:
+            from app.state.agent_state import STATE
+            STATE.event_bus = self._event_bus
+        except Exception:
+            pass
+
     # ─────────────────────────────────────────────────────────────────────
     # Properties
     # ─────────────────────────────────────────────────────────────────────
@@ -567,11 +576,16 @@ class UIController:
         self._register_integration_commands()
 
     def _register_integration_commands(self) -> None:
-        """Register integration-specific commands."""
-        from app.credentials.handlers import INTEGRATION_HANDLERS
+        """Register integration-specific commands.
+
+        ``manager.start()`` (called during agent step 6) has already populated
+        the registry by the time the UI controller boots, so we just iterate
+        the registered handler names.
+        """
+        from craftos_integrations import get_registered_handler_names
         from app.ui_layer.commands.builtin.integrations import IntegrationCommand
 
-        for integration_name in INTEGRATION_HANDLERS:
+        for integration_name in get_registered_handler_names():
             cmd = IntegrationCommand(self, integration_name)
             self._command_registry.register(cmd)
 

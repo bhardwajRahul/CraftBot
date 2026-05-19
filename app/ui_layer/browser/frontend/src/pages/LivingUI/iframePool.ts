@@ -89,6 +89,18 @@ export function refreshIframe(id: string) {
   }
 }
 
+const pendingRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+export function scheduleRefreshIframe(id: string, delayMs = 500) {
+  const existing = pendingRefreshTimers.get(id)
+  if (existing) clearTimeout(existing)
+  const timer = setTimeout(() => {
+    pendingRefreshTimers.delete(id)
+    refreshIframe(id)
+  }, delayMs)
+  pendingRefreshTimers.set(id, timer)
+}
+
 export function hasIframe(id: string): boolean {
   return pool.has(id)
 }

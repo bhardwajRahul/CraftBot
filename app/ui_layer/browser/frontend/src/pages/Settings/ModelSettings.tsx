@@ -106,7 +106,7 @@ export function ModelSettings() {
     onMessage,
     isConnected,
     provider === 'openrouter',
-    baseUrls['openrouter'] || newBaseUrl || undefined,
+    newBaseUrl || baseUrls['openrouter'] || undefined,
   )
 
   const fmtBytes = (n: number) => {
@@ -221,6 +221,7 @@ export function ModelSettings() {
           setNewVlmModel(prev => {
             const effective = prev || currentVlmModel
             if (!d.models.includes(effective)) {
+              setHasChanges(true)
               return d.models[0]
             }
             return prev
@@ -705,6 +706,13 @@ export function ModelSettings() {
                 onChange={(e) => { setNewApiKey(e.target.value); setHasChanges(true) }}
                 placeholder={apiKeys[provider]?.has_key ? 'Enter new key to replace...' : 'Enter API key...'}
               />
+              {(['moonshot', 'minimax'] as string[]).includes(provider) && (
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted, #888)', marginTop: 6, lineHeight: 1.4 }}>
+                  {apiKeys['openrouter']?.has_key
+                    ? 'OpenRouter is configured and will be used automatically if the direct API is unavailable in your region.'
+                    : 'This provider may be geo-restricted. If the direct API fails, configure OpenRouter as a fallback — it will be used automatically.'}
+                </p>
+              )}
             </div>
           )}
 
@@ -836,7 +844,17 @@ export function ModelSettings() {
                   </span>
                 )
               ) : (
-                testResult.error || testResult.message
+                <span style={{ textAlign: 'center', display: 'block' }}>
+                  <span>{testResult.error || testResult.message}</span>
+                  {(['moonshot', 'minimax'] as string[]).includes(provider) && (
+                    <span style={{ marginTop: 12, display: 'block', fontSize: '0.82rem', color: 'var(--text-muted, #888)', lineHeight: 1.5 }}>
+                      This provider may be geo-restricted in your region.
+                      {apiKeys['openrouter']?.has_key
+                        ? ' OpenRouter is already configured and will be used as a fallback automatically.'
+                        : ' Configure OpenRouter in Settings → select "OpenRouter" provider — it will be used as a fallback automatically.'}
+                    </span>
+                  )}
+                </span>
               )}
             </p>
             <Button variant="secondary" onClick={() => { setTestResult(null); setTestBeforeSave(false) }}>

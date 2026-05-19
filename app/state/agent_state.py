@@ -17,6 +17,15 @@ class AgentState:
     event_stream: Optional[str] = None
     gui_mode: bool = False
     agent_properties: AgentProperties = AgentProperties(current_task_id="", action_count=0)
+    # UI event bus reference, set by the interface at boot so module-level
+    # hooks (e.g. _report_usage) can emit UI events without holding a
+    # controller handle. Typed Any to avoid pulling ui_layer into state.
+    event_bus: Any = None
+    # The agent's main asyncio event loop, captured when the interface
+    # adapter starts. Worker threads (e.g. LLM calls via asyncio.to_thread)
+    # use this to schedule coroutines back onto the loop via
+    # asyncio.run_coroutine_threadsafe. Typed Any to avoid importing asyncio.
+    main_loop: Any = None
 
     def update_current_task(self, new_task: Optional[Task]) -> None:
         self.current_task = new_task

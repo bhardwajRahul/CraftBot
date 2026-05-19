@@ -329,6 +329,14 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
             category = ErrorCategory.MODEL
         elif code == "invalid_api_key":
             category = ErrorCategory.AUTH
+        # Chinese provider credit codes (DeepSeek, MiniMax, Moonshot, Qwen)
+        elif code in ("insufficient_user_quota", "quota_exceeded", "balance_insufficient",
+                      "BillingException", "InsufficientQuota"):
+            category = ErrorCategory.CREDIT
+        # Chinese provider content-filter codes
+        elif code in ("content_policy_violation", "content_filter", "output_moderation",
+                      "ContentAuditException", "DataInspectionFailed"):
+            category = ErrorCategory.BLOCKED
 
     # Anthropic-style nested error type can appear when OR proxies Anthropic
     if isinstance(error_type, str):
@@ -336,11 +344,25 @@ def _classify_openai_compat(exc: Exception, provider: str) -> LLMErrorInfo:
             category = ErrorCategory.CREDIT
         elif error_type == "overloaded_error":
             category = ErrorCategory.SERVER
+        # OpenRouter content moderation (OR itself flags the content before forwarding)
+        elif error_type == "moderation":
+            category = ErrorCategory.BLOCKED
 
     # OpenRouter uses 402 for empty wallet; the openai SDK doesn't have a
     # dedicated 402 exception so we land in APIStatusError — adjust here.
     if status == 402:
         category = ErrorCategory.CREDIT
+
+    # OpenRouter 403 can mean content moderation, not just auth — check body
+    if status == 403 and provider == "openrouter":
+        raw_lower = raw_message.lower()
+        if any(k in raw_lower for k in ("moderat", "blocked", "policy", "content", "flagged")):
+            category = ErrorCategory.BLOCKED
+
+    # Localised error message detection — Chinese, Japanese, Korean providers
+    # (DeepSeek, Moonshot, MiniMax, Qwen, rinna, CLOVA, etc.) may return
+    # error text in their native language when routed via OpenRouter.
+    category = _refine_category_from_localised(raw_message, category)
 
     # ── Retry-After ────────────────────────────────────────────────
     retry_after = _retry_after_seconds(exc)
@@ -644,8 +666,12 @@ def _category_from_status(status: Optional[int]) -> ErrorCategory:
         return ErrorCategory.MODEL
     if status == 400:
         return ErrorCategory.BAD_REQUEST
+    if status == 408:
+        return ErrorCategory.CONNECTION  # request timeout
     if status == 429:
         return ErrorCategory.RATE_LIMIT
+    if status == 524:
+        return ErrorCategory.SERVER  # Cloudflare upstream timeout (common on OpenRouter)
     if 500 <= status < 600:
         return ErrorCategory.SERVER
     return ErrorCategory.UNKNOWN
@@ -845,6 +871,88 @@ def _default_actions(
 
 def _has_action(info: LLMErrorInfo, action_value: str) -> bool:
     return any(a.action == action_value for a in info.actions)
+
+
+def _refine_category_from_localised(raw_message: str, current: ErrorCategory) -> ErrorCategory:
+    """Detect category from non-English error text returned by Asian providers.
+
+    Covers Chinese (DeepSeek, MiniMax, Moonshot, Qwen, Baidu ERNIE),
+    Japanese (rinna, Sakura, ELYZA), and Korean (CLOVA, HyperCLOVA) providers
+    that may return error messages in their native language when routed via
+    OpenRouter or called directly.
+
+    Only overrides UNKNOWN / BAD_REQUEST — specific categories already resolved
+    from HTTP status or error codes take priority.
+
+    Handles arbitrary UTF-8 safely: Python str containment checks on Unicode
+    strings are always safe regardless of script or encoding.
+    """
+    if not raw_message or current not in (ErrorCategory.UNKNOWN, ErrorCategory.BAD_REQUEST):
+        return current
+
+    # Normalise: ensure we have a plain str (guards against bytes leaking in)
+    try:
+        msg = raw_message if isinstance(raw_message, str) else raw_message.decode("utf-8", errors="replace")
+    except Exception:
+        return current
+
+    # ── Chinese ───────────────────────────────────────────────────────
+    _ZH_BLOCKED = ("违禁", "违规", "内容政策", "不合规", "审核不通过", "违反规定",
+                   "敏感内容", "内容安全", "内容审核", "政治敏感", "黄色信息")
+    _ZH_CREDIT  = ("余额不足", "额度不足", "账户欠费", "账户余额", "充值", "欠费",
+                   "配额不足", "余额不够")
+    _ZH_AUTH    = ("无效的API", "鉴权失败", "认证失败", "密钥无效", "API密钥",
+                   "身份验证", "未授权")
+    _ZH_RATE    = ("频率限制", "请求过多", "限流", "速率限制", "调用频率",
+                   "访问频率", "接口限流")
+    _ZH_CONTEXT = ("超出最大长度", "上下文长度", "tokens超出", "输入过长",
+                   "超过最大token")
+
+    # ── Japanese ──────────────────────────────────────────────────────
+    _JA_BLOCKED = ("禁止されたコンテンツ", "コンテンツポリシー", "不適切なコンテンツ",
+                   "ポリシー違反", "有害なコンテンツ", "安全フィルター")
+    _JA_CREDIT  = ("残高不足", "クレジット不足", "料金超過", "利用上限", "残高が不足",
+                   "クォータ超過")
+    _JA_AUTH    = ("認証エラー", "認証に失敗", "APIキーが無効", "無効なAPIキー",
+                   "認証情報", "アクセス拒否")
+    _JA_RATE    = ("レート制限", "リクエスト制限", "利用制限", "リクエストが多すぎ",
+                   "スロットリング")
+    _JA_CONTEXT = ("トークン数が上限", "コンテキスト長", "入力が長すぎ", "最大トークン",
+                   "トークン超過")
+
+    # ── Korean ────────────────────────────────────────────────────────
+    _KO_BLOCKED = ("콘텐츠 정책 위반", "부적절한 콘텐츠", "금지된 콘텐츠",
+                   "안전 필터", "정책 위반")
+    _KO_CREDIT  = ("잔액 부족", "크레딧 부족", "한도 초과", "요금 미납", "충전 필요")
+    _KO_AUTH    = ("인증 실패", "잘못된 API 키", "유효하지 않은 키", "인증 오류",
+                   "액세스 거부")
+    _KO_RATE    = ("속도 제한", "요청 제한", "너무 많은 요청", "처리율 제한")
+    _KO_CONTEXT = ("토큰 초과", "컨텍스트 길이 초과", "입력이 너무 깁니다",
+                   "최대 토큰")
+
+    _BLOCKED_KWS = _ZH_BLOCKED + _JA_BLOCKED + _KO_BLOCKED
+    _CREDIT_KWS  = _ZH_CREDIT  + _JA_CREDIT  + _KO_CREDIT
+    _AUTH_KWS    = _ZH_AUTH    + _JA_AUTH    + _KO_AUTH
+    _RATE_KWS    = _ZH_RATE    + _JA_RATE    + _KO_RATE
+    _CONTEXT_KWS = _ZH_CONTEXT + _JA_CONTEXT + _KO_CONTEXT
+
+    for kw in _BLOCKED_KWS:
+        if kw in msg:
+            return ErrorCategory.BLOCKED
+    for kw in _CREDIT_KWS:
+        if kw in msg:
+            return ErrorCategory.CREDIT
+    for kw in _AUTH_KWS:
+        if kw in msg:
+            return ErrorCategory.AUTH
+    for kw in _RATE_KWS:
+        if kw in msg:
+            return ErrorCategory.RATE_LIMIT
+    for kw in _CONTEXT_KWS:
+        if kw in msg:
+            return ErrorCategory.BAD_REQUEST
+
+    return current
 
 
 def _safe_json(text: str) -> Dict[str, Any]:

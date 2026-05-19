@@ -20,8 +20,8 @@ MODEL_REGISTRY = {
         InterfaceType.EMBEDDING: None,  # Anthropic does not provide native embedding models
     },
     "byteplus": {
-        InterfaceType.LLM: "seed-1-6-250915",
-        InterfaceType.VLM: "seed-1-6-250915",
+        InterfaceType.LLM: "seed-2-0-pro-260328",
+        InterfaceType.VLM: "seed-2-0-pro-260328",
         InterfaceType.EMBEDDING: "skylark-embedding-vision-250615",
     },
     "remote": {
@@ -31,7 +31,7 @@ MODEL_REGISTRY = {
     },
     "minimax": {
         InterfaceType.LLM: "MiniMax-Text-01",
-        InterfaceType.VLM: None,
+        InterfaceType.VLM: "MiniMax-VL-01",
         InterfaceType.EMBEDDING: None,
     },
     "deepseek": {
@@ -40,8 +40,8 @@ MODEL_REGISTRY = {
         InterfaceType.EMBEDDING: None,
     },
     "moonshot": {
-        InterfaceType.LLM: "moonshot-v1-8k",
-        InterfaceType.VLM: None,
+        InterfaceType.LLM: "kimi-k2.5",
+        InterfaceType.VLM: "moonshot-v1-8k-vision-preview",
         InterfaceType.EMBEDDING: None,
     },
     "grok": {

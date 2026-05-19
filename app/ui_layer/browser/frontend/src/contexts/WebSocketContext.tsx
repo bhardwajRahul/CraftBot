@@ -1,16 +1,19 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type {
   ChatMessage, ActionItem, AgentStatus, InitialState, WSMessage, DashboardMetrics,
   TaskCancelResponse, FilteredDashboardMetrics, MetricsTimePeriod, OnboardingStep,
-  OnboardingStepResponse, OnboardingSubmitResponse, OnboardingCompleteResponse, 
-  LocalLLMState, LocalLLMCheckResponse, LocalLLMTestResponse, LocalLLMInstallResponse, 
+  OnboardingStepResponse, OnboardingSubmitResponse, OnboardingCompleteResponse,
+  LocalLLMState, LocalLLMCheckResponse, LocalLLMTestResponse, LocalLLMInstallResponse,
   LocalLLMProgressResponse, LocalLLMPullProgressResponse, SuggestedModel,
+  SkillMeta,
   // Living UI types
   LivingUIProject, LivingUICreateRequest, LivingUIStatusUpdate, LivingUIStateUpdate,
   LivingUITodo, LivingUITodosUpdate,
   LivingUICreateResponse, LivingUIListResponse, LivingUILaunchResponse, LivingUIStopResponse, LivingUIDeleteResponse
 } from '../types'
 import { getWsUrl } from '../utils/connection'
+import { scheduleRefreshIframe } from '../pages/LivingUI/iframePool'
 
 // Pending attachment type for upload
 interface PendingAttachment {
@@ -83,6 +86,7 @@ interface WebSocketState {
   livingUITodos: Record<string, LivingUITodo[]>
   activeLivingUIId: string | null
   livingUIStates: Record<string, LivingUIStateUpdate['state']>
+  skillMeta: SkillMeta
 }
 
 interface WebSocketContextType extends WebSocketState {
@@ -195,6 +199,11 @@ const defaultState: WebSocketState = {
   livingUITodos: {},
   activeLivingUIId: null,
   livingUIStates: {},
+  skillMeta: {
+    internalWorkflowIds: [],
+    internalSkillNames: [],
+    reservedSkillNames: [],
+  },
 }
 
 const WebSocketContext = createContext<WebSocketContextType | undefined>(undefined)
@@ -202,6 +211,9 @@ const WebSocketContext = createContext<WebSocketContextType | undefined>(undefin
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<WebSocketState>(defaultState)
   const wsRef = useRef<WebSocket | null>(null)
+  const navigate = useNavigate()
+  const navigateRef = useRef(navigate)
+  navigateRef.current = navigate
   const reconnectTimeoutRef = useRef<number | null>(null)
   const isConnectingRef = useRef<boolean>(false)
   const reconnectCountRef = useRef<number>(0)
@@ -355,6 +367,19 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         break
       }
 
+      case 'skill_meta': {
+        const data = msg.data as unknown as SkillMeta
+        setState(prev => ({
+          ...prev,
+          skillMeta: {
+            internalWorkflowIds: data.internalWorkflowIds || [],
+            internalSkillNames: data.internalSkillNames || [],
+            reservedSkillNames: data.reservedSkillNames || [],
+          },
+        }))
+        break
+      }
+
       case 'chat_message': {
         const message = msg.data as unknown as ChatMessage
         setState(prev => {
@@ -440,6 +465,24 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
           actions: prev.actions.map(a =>
             a.id === id
               ? { ...a, status: status as ActionItem['status'], duration, output, error }
+              : a
+          ),
+        }))
+        break
+      }
+
+      case 'task_token_update': {
+        const { id, inputTokens, outputTokens, cacheTokens } = msg.data as {
+          id: string
+          inputTokens: number
+          outputTokens: number
+          cacheTokens: number
+        }
+        setState(prev => ({
+          ...prev,
+          actions: prev.actions.map(a =>
+            a.id === id
+              ? { ...a, inputTokens, outputTokens, cacheTokens }
               : a
           ),
         }))
@@ -947,6 +990,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         break
       }
 
+      case 'living_ui_data_changed': {
+        const { projectId } = msg.data as { projectId: string }
+        if (projectId) scheduleRefreshIframe(projectId)
+        break
+      }
+
       case 'living_ui_error': {
         const { projectId, error } = msg.data as { projectId: string; error: string }
         setState(prev => ({
@@ -958,6 +1007,12 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
               : p
           ),
         }))
+        break
+      }
+
+      case 'navigate': {
+        const { path } = (msg.data || {}) as { path?: string }
+        if (path) navigateRef.current(path)
         break
       }
     }
@@ -1050,10 +1105,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   }, [sendOrQueue])
 
   const sendCommand = useCallback((command: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'command', command }))
-    }
-  }, [])
+    sendOrQueue(JSON.stringify({ type: 'command', command }))
+  }, [sendOrQueue])
 
   const clearMessages = useCallback(() => {
     setState(prev => ({ ...prev, messages: [] }))

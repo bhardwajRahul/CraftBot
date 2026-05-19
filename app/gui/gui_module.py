@@ -81,8 +81,8 @@ class GUIModule:
         api_key = get_api_key(provider)
         base_url = get_base_url(provider)
 
-        self.llm: LLMInterface = LLMInterface(provider=provider, api_key=api_key, base_url=base_url)
-        self.vlm: VLMInterface = VLMInterface(provider=provider, api_key=api_key, base_url=base_url)
+        self.llm: LLMInterface = LLMInterface(provider=provider, api_key=api_key, base_url=base_url, deferred=not api_key)
+        self.vlm: VLMInterface = VLMInterface(provider=provider, api_key=api_key, base_url=base_url, deferred=not api_key)
         self.action_library: ActionLibrary = action_library
         self.action_router: ActionRouter = action_router
         self.context_engine: ContextEngine = context_engine

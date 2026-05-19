@@ -14,6 +14,7 @@ Your ops manual. Grep `## <topic>` to load what you need.
 add MCP server          → ## MCP
 add skill               → ## Skills
 connect platform        → ## Integrations
+use an integration      → ## Integrations  (and grep its INTEGRATION.md)
 switch model            → ## Models
 set API key             → ## Models
 generate document       → ## Documents
@@ -1038,6 +1039,19 @@ A mission with stale `Next Steps` is worse than no mission. Always leave it acti
 ---
 
 ## Documents
+
+### Delivery format (decide first)
+
+```
+Short answer / explanation / summary / plan / code snippet / small table   → inline chat (send_message)
+Long report / memo / formal document                                       → PDF (default)
+Slide deck                                                                  → pptx
+Spreadsheet                                                                 → xlsx
+Editable Word doc                                                           → docx (only on user request)
+```
+
+- Long-form deliverable defaults to PDF. docx/pptx/xlsx only on explicit user request or obvious fit.
+- Don't create a file to hold content that fits in chat.
 
 [agent_file_system/FORMAT.md](agent_file_system/FORMAT.md) is the source of truth for every document you generate (PDF, pptx, docx, xlsx, and any other file-format output). Read it before generating; it carries the user's brand colors, fonts, writing style, and layout rules.
 
@@ -2785,6 +2799,23 @@ The built-in integrations cover the common 80%; MCP covers the long tail.
 - ALWAYS verify connection success before declaring victory.
 - NEVER write the token to memory, MEMORY.md, USER.md, or chat history beyond the immediate connect step. The handler stores it under `.credentials/<platform>.json` (see `## File System` for the do-not-print rule).
 
+### Using an integration during a task
+
+Connecting is one job; *using* an integration in a task is another. Each integration's source directory may carry an `INTEGRATION.md` reference doc — non-obvious workflows, identity formats, error meanings, and quirks that don't fit in action `input_schema` descriptions.
+
+Two location patterns (try the first; fall back to the second):
+- `craftos_integrations/integrations/<name>/INTEGRATION.md` — directory-style integrations (e.g. [whatsapp_web](craftos_integrations/integrations/whatsapp_web/INTEGRATION.md))
+- `craftos_integrations/integrations/<name>.md` — single-file integrations (e.g. [discord.md](craftos_integrations/integrations/discord.md), [gmail.md](craftos_integrations/integrations/gmail.md), [slack.md](craftos_integrations/integrations/slack.md))
+
+**Consult one before asking the user for input the integration could probably look up itself.** Common case: the user says "send a WhatsApp message to X" and you're tempted to ask for their own phone number — don't. The bridge already knows the logged-in user's identity. The INTEGRATION.md spells out which action returns it.
+
+Other times to grep an INTEGRATION.md:
+- An action returns an error you don't understand.
+- A workflow needs more than one action and you're unsure of the order or which fields to pass between them.
+- A field value looks unfamiliar (e.g. ends in `@lid`, `@c.us`, `@g.us`) and you're tempted to "clean it up" — these are real identity formats; pass them verbatim.
+
+If the file is missing for an integration you need, fall back to grepping the integration's source directory.
+
 ---
 
 ## Models
@@ -2815,7 +2846,7 @@ provider     LLM default model            VLM default model           EMBEDDING 
 openai       gpt-5.2-2025-12-11           gpt-5.2-2025-12-11          text-embedding-3-small   OpenAI-hosted
 anthropic    claude-sonnet-4-5-20250929   claude-sonnet-4-5-20250929  (none — no embedding)    Claude models
 gemini       gemini-2.5-pro               gemini-2.5-pro              text-embedding-004       Google Gemini
-byteplus     seed-1-6-250915              seed-1-6-250915             skylark-embedding-...    BytePlus-hosted
+byteplus     seed-2-0-pro-260328          seed-2-0-pro-260328         skylark-embedding-...    BytePlus-hosted
 remote       llama3.2:3b                  llava:7b                    nomic-embed-text         Ollama or OpenAI-compat
 deepseek     deepseek-chat                (none)                      (none)                   text only
 moonshot     moonshot-v1-8k               (none)                      (none)                   text only
