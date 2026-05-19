@@ -37,7 +37,7 @@ python3 {baseDir}/scripts/polymarket.py calendar
 
 ---
 
-## After Install â€” Suggested Setup
+## After Install - Suggested Setup
 
 ### 1. Add to Morning Briefing
 Add Polymarket to your daily cron:
@@ -181,8 +181,8 @@ Starts with $10,000 paper cash. Track your predictions without real money.
 ## Data Storage
 
 Watchlist and portfolio stored in `~/.polymarket/`:
-- `watchlist.json` â€” Watched markets and alert thresholds
-- `portfolio.json` â€” Paper positions and trade history
+- `watchlist.json` - Watched markets and alert thresholds
+- `portfolio.json` - Paper positions and trade history
 
 ---
 
@@ -232,7 +232,7 @@ Uses the public Gamma API (no auth required for reading):
 **What this skill does:**
 - Makes HTTPS GET requests to `gamma-api.polymarket.com` (public, unauthenticated)
 - Reads market data: odds, volumes, event details, price history
-- Paper trading is **local simulation only** â€” stored in `~/.polymarket/` as JSON files
+- Paper trading is **local simulation only** - stored in `~/.polymarket/` as JSON files
 - No real money, no wallet, no blockchain transactions
 
 **What this skill does NOT do:**

@@ -40,7 +40,7 @@ CraftBot is your Personal AI Assistant that lives inside your machine and works 
 
 It autonomously interprets tasks, plans actions, and executes them to achieve your goals.
 It learns your preferences and objectives, proactively helping you plan and initiate tasks to achieve your life goals.
-MCPs and Skills, and external App integrations are supported. 
+MCPs and Skills, and external App integrations are supported. It can also create, evolve and operate its own SaaS tools for automation and collaboration.
 
 CraftBot awaits your orders. Set up your own CraftBot now.
 

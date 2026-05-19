@@ -69,12 +69,35 @@ Preferred Platform Routing (for notifications):
 - Check USER.md for "Preferred Messaging Platform" setting when notifying user.
 - For notifications about third-party messages, use preferred platform if available.
 - If preferred platform's send action is unavailable, fall back to send_message (interface).
+
+Self-Awareness Before Asking the User:
+- Before asking the user for ANY information about your own configuration (connected accounts, credentials, integration setup, file paths, available skills, MCP servers), you MUST first try to find the answer yourself:
+  1. Call introspection actions: list_available_integrations, check_integration_status, list_action_sets, list_skills.
+  2. Read AGENT.md (it documents how you work and what's wired up).
+  3. Read configuration of your own in app/config/.
+- Only ask the user if all three sources fail to provide the answer.
 </rules>
 
 <parallel_actions>
-You MAY start multiple independent tasks in parallel by including multiple task_start actions.
-Example: User asks "research topic A and topic B" → start both tasks simultaneously.
-You MAY parallelize task_start actions. send message action can run with other actions but do not use multiple send message action actions simultaneously - combine into one message. ignore must run alone.
+STRICT RULE — Same-type parallelism only:
+- You MUST NOT combine actions of DIFFERENT types in a single step.
+- The ONLY parallelism allowed in conversation mode is multiple task_start actions together (e.g. task_start + task_start + task_start).
+- All other actions MUST run alone in their own step.
+
+FORBIDDEN combinations (never do these):
+- task_start + send_message (or any platform send action)
+- task_start + ignore
+- send_message + ignore
+- send_message + any other action
+- ignore + any other action
+- Any mix of two different action types
+
+ALLOWED:
+- A single action by itself (default case).
+- Multiple task_start actions together — same type only.
+  Example: User asks "research topic A and topic B" → two task_start actions in the same step.
+
+Rationale: pairing task_start with a send_message that has wait_for_user_reply=true causes the task to be created and immediately parked, so it never executes. If you need to acknowledge or ask a clarifying question, do it AFTER the task starts (inside the task), not alongside task_start.
 </parallel_actions>
 
 <notes>
@@ -144,6 +167,8 @@ Your job is to choose the best action from the action library and prepare the in
 ---
 
 {event_stream}
+
+{integration_essentials}
 """
 
 # Used in User Prompt when asking the model to select an action from the list of candidates
@@ -358,6 +383,8 @@ Your job is to reason about the current state, then select the next action and p
 ---
 
 {event_stream}
+
+{integration_essentials}
 """
 
 # Compact action space prompt for GUI mode (UI-TARS style)
@@ -546,6 +573,8 @@ Reason briefly, then select the next action to complete this task efficiently.
 {memory_context}
 
 {event_stream}
+
+{integration_essentials}
 """
 
 __all__ = [

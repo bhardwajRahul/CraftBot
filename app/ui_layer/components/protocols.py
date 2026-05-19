@@ -112,6 +112,28 @@ class ActionPanelProtocol(Protocol):
         """
         ...
 
+    async def update_item_tokens(
+        self,
+        item_id: str,
+        input_tokens: int,
+        output_tokens: int,
+        cache_tokens: int,
+    ) -> None:
+        """
+        Update a task item's cumulative LLM token usage counters.
+
+        Called per-LLM-call to push the running totals (input, output, cache)
+        to the UI so the user sees them tick up while the task runs and
+        frozen at the final value when it completes.
+
+        Args:
+            item_id: ID of the task item to update
+            input_tokens: Cumulative input tokens for this task
+            output_tokens: Cumulative output tokens for this task
+            cache_tokens: Cumulative cache tokens for this task (read+creation)
+        """
+        ...
+
     async def remove_item(self, item_id: str) -> None:
         """
         Remove an item from the panel.
@@ -123,6 +145,16 @@ class ActionPanelProtocol(Protocol):
 
     async def clear(self) -> None:
         """Clear all items from the panel."""
+        ...
+
+    async def clear_terminal_tasks(self) -> int:
+        """
+        Remove tasks whose status is completed/error/cancelled, along with
+        their child actions. Running/waiting tasks are preserved.
+
+        Returns:
+            Number of items removed.
+        """
         ...
 
     def select_task(self, task_id: Optional[str]) -> None:

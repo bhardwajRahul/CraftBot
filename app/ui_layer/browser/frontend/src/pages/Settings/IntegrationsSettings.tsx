@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import * as LucideIcons from 'lucide-react'
 import {
   Globe,
   Package,
@@ -9,6 +10,7 @@ import {
   X,
   Power,
   Wrench,
+  HelpCircle,
 } from 'lucide-react'
 import { Button, Badge, ConfirmModal } from '../../components/ui'
 import { useToast } from '../../contexts/ToastContext'
@@ -29,6 +31,17 @@ interface IntegrationAccount {
   id: string
 }
 
+// Schema for a single config input rendered by the Configure section in
+// the Manage modal. Sourced from the backend handler's ``config_fields``.
+interface ConfigField {
+  key: string
+  label: string
+  type: 'text' | 'textarea' | 'list' | 'checkbox' | 'select' | 'number'
+  placeholder?: string
+  help?: string
+  options?: Array<{ value: string; label: string }>  // required when type==='select'
+}
+
 interface Integration {
   id: string
   name: string
@@ -37,10 +50,21 @@ interface Integration {
   connected: boolean
   accounts: IntegrationAccount[]
   fields: IntegrationField[]
+  icon?: string  // Lucide icon name supplied by the backend handler
+  has_config?: boolean
+  config_fields?: ConfigField[] | null
+  // Inline help shown in a popover when the user clicks the "?" button
+  // in the connect modal. Each entry is one step / one place to look.
+  // Sourced from the handler's ``connect_help`` attribute. Null/empty
+  // hides the "?" button.
+  connect_help?: string[] | null
 }
 
-// Integration icon component using inline SVGs for brand logos
-const IntegrationIcon = ({ id, size = 20 }: { id: string; size?: number }) => {
+// Integration icon component. Lookup order:
+//   1. Hand-crafted brand SVG keyed by integration id (defined below)
+//   2. Lucide icon by name from the backend's ``icon`` field
+//   3. Generic globe fallback
+const IntegrationIcon = ({ id, icon, size = 20 }: { id: string; icon?: string; size?: number }) => {
   const icons: Record<string, React.ReactNode> = {
     google: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -48,6 +72,46 @@ const IntegrationIcon = ({ id, size = 20 }: { id: string; size?: number }) => {
         <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
         <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
         <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+      </svg>
+    ),
+    gmail: (
+      <svg width={size} height={size} viewBox="0 0 256 193" xmlns="http://www.w3.org/2000/svg">
+        <path fill="#4285F4" d="M58.182 192.05V93.14L27.507 65.077 0 49.504v125.091c0 9.658 7.825 17.455 17.455 17.455z"/>
+        <path fill="#34A853" d="M197.818 192.05h40.727c9.659 0 17.455-7.826 17.455-17.455V49.505l-31.156 17.837-27.026 25.798z"/>
+        <path fill="#EA4335" d="M58.182 93.14l-4.174-38.605 4.174-36.927L128 69.864l69.818-52.364 4.671 33.654-4.67 39.987-69.819 52.363z"/>
+        <path fill="#FBBC04" d="M197.818 17.5V93.14L256 49.504V26.231c0-21.585-24.64-33.89-41.89-20.945z"/>
+        <path fill="#C5221F" d="M0 49.504l26.759 20.07L58.182 93.14V17.5L41.89 5.286C24.61-7.658 0 4.646 0 26.226z"/>
+      </svg>
+    ),
+    google_calendar: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect x="2" y="4" width="20" height="18" rx="2" fill="#fff" stroke="#dadce0" strokeWidth="0.5"/>
+        <rect x="2" y="4" width="20" height="4" rx="2" fill="#4285F4"/>
+        <rect x="6" y="2" width="2" height="4" rx="1" fill="#4285F4"/>
+        <rect x="16" y="2" width="2" height="4" rx="1" fill="#4285F4"/>
+        <text x="12" y="18" fontSize="10" fontWeight="700" textAnchor="middle" fill="#1a73e8" fontFamily="sans-serif">{new Date().getDate()}</text>
+      </svg>
+    ),
+    google_drive: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <path d="M9 2L1.5 15l3 5h7.5L9 2z" fill="#0F9D58"/>
+        <path d="M15 2L9 2l9 16h6L15 2z" fill="#FFCD40"/>
+        <path d="M4.5 20l3-5h15l-3 5h-15z" fill="#4285F4"/>
+      </svg>
+    ),
+    google_docs: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <path d="M5 2h9l5 5v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#4285F4"/>
+        <path d="M14 2v5h5l-5-5z" fill="#A1C2FA"/>
+        <rect x="6" y="11" width="12" height="1.2" rx="0.6" fill="#fff"/>
+        <rect x="6" y="14" width="12" height="1.2" rx="0.6" fill="#fff"/>
+        <rect x="6" y="17" width="9" height="1.2" rx="0.6" fill="#fff"/>
+      </svg>
+    ),
+    google_youtube: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <path d="M23 7.2a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.6A3 3 0 0 0 1 7.2C.5 9.1.5 12 .5 12s0 2.9.5 4.8a3 3 0 0 0 2.1 2.1c1.9.6 8.9.6 8.9.6s7 0 8.9-.6a3 3 0 0 0 2.1-2.1c.5-1.9.5-4.8.5-4.8s0-2.9-.5-4.8z" fill="#FF0000"/>
+        <path d="M9.75 15.5l6-3.5-6-3.5v7z" fill="#fff"/>
       </svg>
     ),
     slack: (
@@ -81,6 +145,24 @@ const IntegrationIcon = ({ id, size = 20 }: { id: string; size?: number }) => {
     telegram: (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="#26A5E4">
         <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+      </svg>
+    ),
+    line: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="#06C755">
+        <path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/>
+      </svg>
+    ),
+    lark: (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <defs>
+          <linearGradient id="larkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#00D6B9"/>
+            <stop offset="50%" stopColor="#00B8E0"/>
+            <stop offset="100%" stopColor="#3370FF"/>
+          </linearGradient>
+        </defs>
+        <rect x="2" y="2" width="20" height="20" rx="4.5" fill="url(#larkGrad)"/>
+        <path d="M7.5 9.2c0-.66.54-1.2 1.2-1.2h6.4c.66 0 1.2.54 1.2 1.2v2.4c0 1.66-1.34 3-3 3H10.6l-2.6 2.2c-.3.25-.5.05-.5-.3v-7.3z" fill="#fff"/>
       </svg>
     ),
     whatsapp: (
@@ -118,7 +200,165 @@ const IntegrationIcon = ({ id, size = 20 }: { id: string; size?: number }) => {
       </svg>
     ),
   }
-  return <span className={styles.integrationIconSvg}>{icons[id] || <Globe size={size} />}</span>
+  // 1. Brand SVG keyed by the backend's ``icon`` name (e.g. "github",
+  //    "google", "notion") — the integration file owns this declaration.
+  if (icon && icons[icon]) {
+    return <span className={styles.integrationIconSvg}>{icons[icon]}</span>
+  }
+  // 2. Backwards-compat: legacy lookup by integration id, in case any
+  //    integration hasn't declared ``icon`` yet.
+  if (icons[id]) {
+    return <span className={styles.integrationIconSvg}>{icons[id]}</span>
+  }
+  // 3. Lucide fallback for non-brand icons (e.g. "Inbox", "Send").
+  if (icon) {
+    const lucideMap = LucideIcons as unknown as Record<string, React.ComponentType<{ size?: number }>>
+    const LucideIcon = lucideMap[icon]
+    if (LucideIcon) {
+      return <span className={styles.integrationIconSvg}><LucideIcon size={size} /></span>
+    }
+  }
+  // 4. Generic fallback
+  return <span className={styles.integrationIconSvg}><Globe size={size} /></span>
+}
+
+// Schema-driven Configure form. Renders one input per ``ConfigField`` and
+// flushes its values back to the parent via ``onChange``. Adding a new
+// supported ``type`` is one ``case`` in the renderField switch — no other
+// file changes needed.
+const ConfigForm = ({
+  integrationId,
+  schema,
+  values,
+  onChange,
+  saving,
+  onSave,
+}: {
+  integrationId: string
+  schema: ConfigField[]
+  values: Record<string, any>
+  onChange: (values: Record<string, any>) => void
+  saving: boolean
+  onSave: () => void
+}) => {
+  const setField = (key: string, value: any) => {
+    onChange({ ...values, [key]: value })
+  }
+
+  const renderField = (field: ConfigField) => {
+    const cur = values[field.key]
+    const id = `cfg-${integrationId}-${field.key}`
+
+    switch (field.type) {
+      case 'textarea':
+        return (
+          <textarea
+            id={id}
+            className={styles.input}
+            placeholder={field.placeholder}
+            value={cur ?? ''}
+            onChange={e => setField(field.key, e.target.value)}
+            rows={4}
+          />
+        )
+
+      case 'list': {
+        // Comma-separated <input>. The backend coerces "a, b, c" → ["a","b","c"]
+        // on save (see service.py:_coerce). Crucially, we keep the raw string
+        // in state while the user is typing — converting to an array on every
+        // keystroke would strip trailing commas/spaces and stop the user from
+        // typing a second item.
+        const display = Array.isArray(cur) ? cur.join(', ') : (cur ?? '')
+        return (
+          <input
+            id={id}
+            type="text"
+            className={styles.input}
+            placeholder={field.placeholder}
+            value={display}
+            onChange={e => setField(field.key, e.target.value)}
+          />
+        )
+      }
+
+      case 'checkbox':
+        return (
+          <label htmlFor={id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              id={id}
+              type="checkbox"
+              checked={Boolean(cur)}
+              onChange={e => setField(field.key, e.target.checked)}
+            />
+            <span>{field.help || field.label}</span>
+          </label>
+        )
+
+      case 'select':
+        return (
+          <select
+            id={id}
+            className={styles.input}
+            value={cur ?? ''}
+            onChange={e => setField(field.key, e.target.value)}
+          >
+            {(field.options ?? []).map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+        )
+
+      case 'number':
+        return (
+          <input
+            id={id}
+            type="number"
+            className={styles.input}
+            placeholder={field.placeholder}
+            value={cur ?? ''}
+            onChange={e => setField(field.key, e.target.value)}
+          />
+        )
+
+      case 'text':
+      default:
+        return (
+          <input
+            id={id}
+            type="text"
+            className={styles.input}
+            placeholder={field.placeholder}
+            value={cur ?? ''}
+            onChange={e => setField(field.key, e.target.value)}
+          />
+        )
+    }
+  }
+
+  return (
+    <div className={styles.connectForm}>
+      {schema.map(field => (
+        <div key={field.key} className={styles.fieldGroup}>
+          {/* Checkbox renders its own label (next to the box). For every
+              other type the label sits above the input. */}
+          {field.type !== 'checkbox' && (
+            <label htmlFor={`cfg-${integrationId}-${field.key}`} className={styles.fieldLabel}>
+              {field.label}
+            </label>
+          )}
+          {renderField(field)}
+          {field.help && field.type !== 'checkbox' && (
+            <p style={{ fontSize: 12, opacity: 0.65, marginTop: 4 }}>{field.help}</p>
+          )}
+        </div>
+      ))}
+      <div className={styles.modalActions}>
+        <Button variant="primary" onClick={onSave} disabled={saving}>
+          {saving ? <><Loader2 size={14} className={styles.spinning} /> Saving…</> : 'Save'}
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 export function IntegrationsSettings() {
@@ -144,10 +384,28 @@ export function IntegrationsSettings() {
   const [credentials, setCredentials] = useState<Record<string, string>>({})
   const [connectError, setConnectError] = useState('')
   const [isConnecting, setIsConnecting] = useState(false)
+  const [showConnectHelp, setShowConnectHelp] = useState(false)
 
   // Manage modal state
   const [showManageModal, setShowManageModal] = useState(false)
   const [managingIntegration, setManagingIntegration] = useState<Integration | null>(null)
+
+  // Slow operation overlay — shown during long disconnects (WhatsApp Web's
+  // bridge teardown can take 20–30 seconds; without this the user has no
+  // feedback until the backend confirms). Cleared by integration_disconnect_result.
+  const [pendingOp, setPendingOp] = useState<{
+    kind: 'disconnect'
+    id: string
+    label: string
+  } | null>(null)
+
+  // Per-integration runtime config — populated from integration_get_config
+  // when the Manage modal opens for an integration with has_config === true.
+  // ``configValues`` is keyed by config_field.key. The form is fully driven
+  // by ``managingIntegration.config_fields`` (the schema from the backend).
+  const [configValues, setConfigValues] = useState<Record<string, any>>({})
+  const [configLoading, setConfigLoading] = useState(false)
+  const [configSaving, setConfigSaving] = useState(false)
 
   // WhatsApp QR code state
   const [whatsappQrCode, setWhatsappQrCode] = useState<string | null>(null)
@@ -194,7 +452,10 @@ export function IntegrationsSettings() {
         }
       }),
       onMessage('integration_disconnect_result', (data: unknown) => {
-        const d = data as { success: boolean; message?: string; error?: string }
+        const d = data as { success: boolean; message?: string; error?: string; id?: string }
+        // Clear the slow-disconnect overlay if this result is for the
+        // operation it was tracking.
+        setPendingOp(prev => (prev && d.id && prev.id === d.id) ? null : prev)
         if (d.success) {
           showToast('success', d.message || 'Disconnected successfully')
           setShowManageModal(false)
@@ -208,8 +469,43 @@ export function IntegrationsSettings() {
         if (d.success && d.integration) {
           setManagingIntegration(d.integration)
           setShowManageModal(true)
+          // If this integration has runtime config, kick off a fetch so the
+          // Configure section is populated by the time the user scrolls to it.
+          if (d.integration.has_config) {
+            setConfigLoading(true)
+            setConfigValues({})
+            send('integration_get_config', { id: d.integration.id })
+          }
         } else {
           showToast('error', d.error || 'Failed to get integration info')
+        }
+      }),
+      // Per-integration runtime config (schema-driven; works for every
+      // integration that declares config_class on its handler).
+      onMessage('integration_config', (data: unknown) => {
+        const d = data as {
+          id: string; success: boolean
+          schema?: ConfigField[]; values?: Record<string, any>
+          error?: string
+        }
+        setConfigLoading(false)
+        if (d.success) {
+          setConfigValues(d.values || {})
+        } else if (d.error) {
+          showToast('error', d.error)
+        }
+      }),
+      onMessage('integration_config_updated', (data: unknown) => {
+        const d = data as {
+          id: string; success: boolean
+          message?: string; values?: Record<string, any>; error?: string
+        }
+        setConfigSaving(false)
+        if (d.success) {
+          showToast('success', d.message || 'Settings saved')
+          if (d.values) setConfigValues(d.values)
+        } else {
+          showToast('error', d.error || d.message || 'Failed to save settings')
         }
       }),
       // WhatsApp QR code handlers
@@ -284,9 +580,10 @@ export function IntegrationsSettings() {
     setSelectedIntegration(integration)
     setCredentials({})
     setConnectError('')
+    setShowConnectHelp(false)
     setShowConnectModal(true)
 
-    if (integration.auth_type === 'interactive' && integration.id === 'whatsapp') {
+    if (integration.auth_type === 'interactive' && integration.id === 'whatsapp_web') {
       handleStartWhatsAppQR()
     }
   }
@@ -351,18 +648,40 @@ export function IntegrationsSettings() {
     send('integration_connect_interactive', { id: selectedIntegration.id })
   }
 
+  // Slow integrations show a "working…" overlay during disconnect so the
+  // user gets visible feedback during the bridge teardown (which can take
+  // 20–30 seconds for WhatsApp Web). Add other slow integrations here.
+  const SLOW_DISCONNECT_IDS = new Set(['whatsapp_web'])
+
   const handleDisconnect = (accountId?: string) => {
     if (!managingIntegration) return
+    const targetId = managingIntegration.id
+    const targetName = managingIntegration.name
+
+    // Optimistic UI update — mark this integration as disconnected immediately
+    // so the user gets instant feedback in the integrations list. Some
+    // integrations (WhatsApp Web) take 20+ seconds to tear down their bridge
+    // cleanly, and the ``integration_list`` broadcast only fires after that
+    // completes. The backend's authoritative ``integration_list`` will
+    // overwrite this when it arrives. If the disconnect fails,
+    // ``integration_disconnect_result`` shows a toast and the next refresh
+    // restores the real state.
+    setIntegrations(prev => prev.map(i =>
+      i.id === targetId ? { ...i, connected: false, accounts: [] } : i
+    ))
+    setConnectedCount(prev => Math.max(0, prev - 1))
+    setShowManageModal(false)
+    setManagingIntegration(null)
+
+    // Slow disconnects: show a blocking overlay until the result arrives.
+    if (SLOW_DISCONNECT_IDS.has(targetId)) {
+      setPendingOp({ kind: 'disconnect', id: targetId, label: targetName })
+    }
+
     send('integration_disconnect', {
-      id: managingIntegration.id,
+      id: targetId,
       account_id: accountId,
     })
-  }
-
-  const handleAddAnother = () => {
-    if (!managingIntegration) return
-    setShowManageModal(false)
-    handleOpenConnect(managingIntegration)
   }
 
   const filteredIntegrations = integrations
@@ -434,7 +753,7 @@ export function IntegrationsSettings() {
               className={`${styles.integrationItem} ${!integration.connected ? styles.integrationItemDisabled : ''}`}
             >
               <div className={styles.integrationItemIcon}>
-                <IntegrationIcon id={integration.id} size={24} />
+                <IntegrationIcon id={integration.id} icon={integration.icon} size={24} />
               </div>
               <div className={styles.integrationItemMain}>
                 <div className={styles.integrationItemHeader}>
@@ -497,10 +816,46 @@ export function IntegrationsSettings() {
           <div className={styles.modalContent} onClick={e => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h3>Connect {selectedIntegration.name}</h3>
-              <button className={styles.modalClose} onClick={() => setShowConnectModal(false)}>
-                <X size={18} />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                {(selectedIntegration.connect_help?.length ?? 0) > 0 && (
+                  <button
+                    className={styles.modalClose}
+                    onClick={() => setShowConnectHelp(v => !v)}
+                    title={`Where to find ${selectedIntegration.name} credentials`}
+                    aria-expanded={showConnectHelp}
+                  >
+                    <HelpCircle size={18} />
+                  </button>
+                )}
+                <button className={styles.modalClose} onClick={() => setShowConnectModal(false)}>
+                  <X size={18} />
+                </button>
+              </div>
             </div>
+            {showConnectHelp && (selectedIntegration.connect_help?.length ?? 0) > 0 && (
+              <div
+                style={{
+                  margin: '0 var(--space-4, 1rem)',
+                  marginTop: '12px',
+                  padding: 'var(--space-3, 0.75rem) var(--space-4, 1rem)',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-primary)',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  color: 'var(--text-primary)',
+                  fontSize: 'var(--text-sm, 0.85rem)',
+                  lineHeight: 1.5,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--text-primary)' }}>
+                  Where to find {selectedIntegration.name} credentials
+                </div>
+                <ol style={{ margin: 0, paddingLeft: '1.25rem', color: 'var(--text-secondary)' }}>
+                  {selectedIntegration.connect_help!.map((step, i) => (
+                    <li key={i} style={{ marginBottom: 2 }}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
             <div className={styles.modalBody}>
               {/* OAuth-only integrations */}
               {selectedIntegration.auth_type === 'oauth' && (
@@ -669,8 +1024,31 @@ export function IntegrationsSettings() {
                 </div>
               )}
 
-              {/* Interactive integrations (WhatsApp) */}
-              {selectedIntegration.auth_type === 'interactive' && (
+              {/* Interactive integrations: generic dispatcher for non-WhatsApp */}
+              {selectedIntegration.auth_type === 'interactive' && selectedIntegration.id !== 'whatsapp_web' && (
+                <div className={styles.connectForm}>
+                  <p className={styles.connectDesc}>
+                    {selectedIntegration.description}
+                  </p>
+                  <Button
+                    variant="primary"
+                    onClick={handleConnectInteractive}
+                    disabled={isConnecting}
+                  >
+                    {isConnecting ? (
+                      <><Loader2 size={16} className={styles.spinning} /> Connecting...</>
+                    ) : (
+                      <>Connect {selectedIntegration.name}</>
+                    )}
+                  </Button>
+                  {connectError && (
+                    <div className={styles.connectError}>{connectError}</div>
+                  )}
+                </div>
+              )}
+
+              {/* WhatsApp Web QR-specific interactive flow */}
+              {selectedIntegration.auth_type === 'interactive' && selectedIntegration.id === 'whatsapp_web' && (
                 <div className={styles.connectForm}>
                   {whatsappStatus === 'loading' && (
                     <div className={styles.whatsappLoading}>
@@ -756,17 +1134,58 @@ export function IntegrationsSettings() {
                   ))}
                 </div>
               )}
-              <div className={styles.modalActions}>
-                <Button variant="secondary" onClick={handleAddAnother} icon={<Plus size={14} />}>
-                  Add Another Account
-                </Button>
-              </div>
+              {/* Configure — schema-driven form, only shown for integrations
+                  whose handler declared ``config_class`` + ``config_fields``. */}
+              {managingIntegration.has_config && (managingIntegration.config_fields?.length ?? 0) > 0 && (
+                <>
+                  <h4 className={styles.manageSubtitle}>Configure</h4>
+                  {configLoading ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, opacity: 0.7 }}>
+                      <Loader2 size={16} className={styles.spinning} />
+                      <span>Loading settings…</span>
+                    </div>
+                  ) : (
+                    <ConfigForm
+                      integrationId={managingIntegration.id}
+                      schema={managingIntegration.config_fields ?? []}
+                      values={configValues}
+                      onChange={setConfigValues}
+                      saving={configSaving}
+                      onSave={() => {
+                        setConfigSaving(true)
+                        send('integration_update_config', {
+                          id: managingIntegration.id,
+                          values: configValues,
+                        })
+                      }}
+                    />
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
       )}
 
       {/* Confirm Modal */}
+      {/* Slow-disconnect overlay — shown until the backend confirms via
+          ``integration_disconnect_result``. */}
+      {pendingOp && (
+        <div className={styles.modalOverlay}>
+          <div className={styles.modalContent} style={{ minWidth: 320, maxWidth: 400 }}>
+            <div className={styles.whatsappLoading}>
+              <Loader2 size={48} className={styles.spinning} />
+              <p style={{ marginTop: 16, fontWeight: 500 }}>
+                {pendingOp.kind === 'disconnect' ? `Disconnecting ${pendingOp.label}…` : `Connecting ${pendingOp.label}…`}
+              </p>
+              <p style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>
+                This can take up to 30 seconds.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ConfirmModal {...confirmModalProps} />
     </div>
   )

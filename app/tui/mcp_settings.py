@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -11,6 +12,23 @@ from app.mcp import MCPConfig, MCPServerConfig
 
 # Default MCP config path
 MCP_CONFIG_PATH = APP_CONFIG_PATH / "mcp_config.json"
+
+
+def _is_windows_path(path: str) -> bool:
+    """Check if a path uses Windows drive-letter syntax (e.g. C:/...)."""
+    return bool(path) and len(path) >= 2 and path[0].isalpha() and path[1] == ":"
+
+
+def _path_usable_on_current_platform(command: str, args: list) -> bool:
+    """Return False if command/args reference paths not valid on this OS."""
+    if sys.platform == "win32":
+        return True
+    if _is_windows_path(command):
+        return False
+    for arg in args or []:
+        if _is_windows_path(arg):
+            return False
+    return True
 
 
 def load_mcp_config() -> MCPConfig:
@@ -34,10 +52,27 @@ def save_mcp_config(config: MCPConfig) -> bool:
 
 
 def list_mcp_servers() -> List[Dict[str, Any]]:
-    """Get list of configured MCP servers with their status."""
-    config = load_mcp_config()
+    """Get list of configured MCP servers with their status.
+
+    Servers with platform-incompatible paths (e.g. Windows paths on macOS)
+    are annotated with a ``platform_blocked`` flag so the UI can explain why
+    they cannot be started.
+    """
+    try:
+        config = load_mcp_config()
+    except Exception as exc:
+        logger.error(f"Failed to load MCP config: {exc}")
+        return []
     servers = []
     for server in config.mcp_servers:
+        platform_blocked = not _path_usable_on_current_platform(
+            server.command or "", getattr(server, "args", []) or []
+        )
+        if platform_blocked:
+            logger.debug(
+                "MCP server %s has platform-specific paths — skipping on %s",
+                server.name, sys.platform,
+            )
         servers.append({
             "name": server.name,
             "description": server.description,
@@ -46,6 +81,7 @@ def list_mcp_servers() -> List[Dict[str, Any]]:
             "command": server.command,
             "action_set": server.resolved_action_set_name,
             "env": server.env,
+            "platform_blocked": platform_blocked,
         })
     return servers
 

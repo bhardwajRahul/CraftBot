@@ -340,9 +340,19 @@ export function OnboardingPage() {
     removeAgentProfilePicture,
   } = useWebSocket()
 
+  // Providers that route through OpenRouter — model slug is configurable.
+  const OR_PROXIED = ['moonshot', 'minimax']
+  const OR_MODEL_DEFAULTS: Record<string, string> = {
+    moonshot: 'moonshotai/kimi-k2.5',
+    minimax: 'minimax/minimax-01',
+  }
+
   // Local form state
   const [selectedValue, setSelectedValue] = useState<string | string[]>('')
   const [textValue, setTextValue] = useState('')
+  const [orModel, setOrModel] = useState('')
+  // For proxied providers: 'direct' tries the native API, 'openrouter' routes via OR.
+  const [proxiedVia, setProxiedVia] = useState<'direct' | 'openrouter'>('direct')
   // URL submitted from OllamaSetup
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434')
   const [ollamaConnected, setOllamaConnected] = useState(false)
@@ -405,6 +415,11 @@ export function OnboardingPage() {
       } else {
         setSelectedValue('')
         setTextValue(typeof onboardingStep.default === 'string' ? onboardingStep.default : '')
+        // Reset proxied-provider mode and pre-fill OR model default
+        if (onboardingStep.name === 'api_key' && onboardingStep.provider && OR_PROXIED.includes(onboardingStep.provider)) {
+          setProxiedVia('direct')
+          setOrModel(OR_MODEL_DEFAULTS[onboardingStep.provider] || '')
+        }
       }
     }
   }, [onboardingStep])
@@ -477,9 +492,13 @@ export function OnboardingPage() {
   const handleSubmit = useCallback(() => {
     if (!onboardingStep) return
     const isOllamaStep = onboardingStep.name === 'api_key' && onboardingStep.provider === 'remote'
+    const isProxiedStep = onboardingStep.name === 'api_key' &&
+      onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
 
     if (isOllamaStep) {
       submitOnboardingStep(ollamaUrl)
+    } else if (isProxiedStep) {
+      submitOnboardingStep({ api_key: textValue, via: proxiedVia, or_model: proxiedVia === 'openrouter' ? orModel : '' })
     } else if (onboardingStep.form_fields && onboardingStep.form_fields.length > 0) {
       submitOnboardingStep(formValues)
     } else if (onboardingStep.options.length > 0) {
@@ -487,9 +506,24 @@ export function OnboardingPage() {
     } else {
       submitOnboardingStep(textValue)
     }
-  }, [onboardingStep, selectedValue, textValue, ollamaUrl, formValues, submitOnboardingStep])
+  }, [onboardingStep, selectedValue, textValue, orModel, proxiedVia, ollamaUrl, formValues, submitOnboardingStep])
 
   const handleSkip = useCallback(() => skipOnboardingStep(), [skipOnboardingStep])
+
+  // Ctrl+S to skip optional steps (matches TUI behavior)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        if (onboardingStep && !onboardingStep.required) {
+          e.preventDefault()
+          skipOnboardingStep()
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onboardingStep, skipOnboardingStep])
+
   const handleBack = useCallback(() => goBackOnboardingStep(), [goBackOnboardingStep])
 
   const isMultiSelect = onboardingStep?.name === 'mcp' || onboardingStep?.name === 'skills'
@@ -821,6 +855,60 @@ export function OnboardingPage() {
 
     // Text input step
     const isApiKey = onboardingStep.name === 'api_key'
+    const isProxied = isApiKey && onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
+
+    if (isProxied) {
+      const providerDisplay = { moonshot: 'Moonshot', minimax: 'MiniMax' }[onboardingStep.provider!] ?? onboardingStep.provider
+      const isViaOR = proxiedVia === 'openrouter'
+      return (
+        <div className={styles.formGroup}>
+          <input
+            type="password"
+            className={`${styles.textInput} ${onboardingError ? styles.error : ''}`}
+            value={textValue}
+            onChange={e => setTextValue(e.target.value)}
+            placeholder={isViaOR ? 'Enter your OpenRouter API key' : `Enter your ${providerDisplay} API key`}
+            autoFocus
+            onKeyDown={e => { if (e.key === 'Enter' && canSubmit) handleSubmit() }}
+          />
+          <div className={styles.inputHint}>Your API key is stored locally.</div>
+          {isViaOR && (
+            <div style={{ marginTop: 14 }}>
+              <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500, marginBottom: 6 }}>
+                Model <span style={{ fontWeight: 400, opacity: 0.6 }}>(optional — leave default or enter any OpenRouter slug)</span>
+              </label>
+              <input
+                type="text"
+                className={styles.textInput}
+                value={orModel}
+                onChange={e => setOrModel(e.target.value)}
+                placeholder={OR_MODEL_DEFAULTS[onboardingStep.provider!] ?? 'e.g. moonshotai/kimi-k2.5'}
+              />
+            </div>
+          )}
+          <div style={{ marginTop: 12 }}>
+            {isViaOR ? (
+              <button
+                type="button"
+                onClick={() => { setProxiedVia('direct'); setTextValue('') }}
+                style={{ background: 'none', border: 'none', color: 'var(--accent, #e07b39)', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
+              >
+                ← Use direct {providerDisplay} API instead
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { setProxiedVia('openrouter'); setTextValue('') }}
+                style={{ background: 'none', border: 'none', color: 'var(--accent, #e07b39)', cursor: 'pointer', fontSize: '0.82rem', padding: 0 }}
+              >
+                Having connection issues? Use OpenRouter instead →
+              </button>
+            )}
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className={styles.formGroup}>
         <input
@@ -871,7 +959,11 @@ export function OnboardingPage() {
           {onboardingStep && (
             <>
               <h2 className={styles.stepTitle}>
-                {onboardingStep.title}
+                {(() => {
+                  const isProxiedApiKey = onboardingStep.name === 'api_key' && onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
+                  if (isProxiedApiKey && proxiedVia === 'openrouter') return 'Enter OpenRouter API Key'
+                  return onboardingStep.title
+                })()}
                 {!onboardingStep.required && (
                   <span className={styles.optionalBadge}>Optional</span>
                 )}
@@ -893,7 +985,14 @@ export function OnboardingPage() {
                     case 'error':         return localLLM.error ?? "Something went wrong. Check the error below and retry."
                     default:              return "Checking Ollama status…"
                   }
-                })() : onboardingStep.description}
+                })() : (() => {
+                  const isProxiedApiKey = onboardingStep.name === 'api_key' && onboardingStep.provider != null && OR_PROXIED.includes(onboardingStep.provider)
+                  if (isProxiedApiKey && proxiedVia === 'openrouter') {
+                    const display = { moonshot: 'Moonshot (Kimi)', minimax: 'MiniMax' }[onboardingStep.provider!] ?? onboardingStep.provider
+                    return `${display} models will be accessed via OpenRouter. Enter your OpenRouter API key — the model will be configured automatically. Get a free key at openrouter.ai`
+                  }
+                  return onboardingStep.description
+                })()}
               </p>
 
               {/* Error Message */}

@@ -81,8 +81,8 @@ class GUIModule:
         api_key = get_api_key(provider)
         base_url = get_base_url(provider)
 
-        self.llm: LLMInterface = LLMInterface(provider=provider, api_key=api_key, base_url=base_url)
-        self.vlm: VLMInterface = VLMInterface(provider=provider, api_key=api_key, base_url=base_url)
+        self.llm: LLMInterface = LLMInterface(provider=provider, api_key=api_key, base_url=base_url, deferred=not api_key)
+        self.vlm: VLMInterface = VLMInterface(provider=provider, api_key=api_key, base_url=base_url, deferred=not api_key)
         self.action_library: ActionLibrary = action_library
         self.action_router: ActionRouter = action_router
         self.context_engine: ContextEngine = context_engine
@@ -782,7 +782,8 @@ class GUIModule:
         return reasoning_result, int(item_index)
 
     async def _check_agent_limits(self) -> bool:
-        agent_properties = STATE.get_agent_properties()
+        from app.state.agent_state import get_session_props
+        agent_properties = get_session_props().to_dict()
         action_count: int = agent_properties.get("action_count", 0)
         max_actions: int = agent_properties.get("max_actions_per_task", 0)
         token_count: int = agent_properties.get("token_count", 0)

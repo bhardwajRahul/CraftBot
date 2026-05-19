@@ -946,7 +946,7 @@ class MetricsCollector:
             # Task metrics
             total_tasks = len(self._task_records)
             completed_count = len([t for t in self._task_records if t.status == "completed"])
-            failed_count = len([t for t in self._task_records if t.status == "error"])
+            failed_count = len([t for t in self._task_records if t.status in ("error", "cancelled")])
             running_count = len(self._running_tasks)
 
             finished_tasks = completed_count + failed_count

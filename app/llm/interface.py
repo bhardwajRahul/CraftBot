@@ -10,17 +10,17 @@ from typing import Any, Dict, Optional
 
 from agent_core.core.impl.llm import LLMInterface as _LLMInterface
 from agent_core.core.hooks.types import UsageEventData
-from app.state.agent_state import STATE
+from app.state.agent_state import get_session_props
 
 
 def _get_token_count() -> int:
-    """Get token count from CraftBot's global STATE."""
-    return STATE.get_agent_property("token_count", 0)
+    """Get token count from the active task's StateSession (per-task counter)."""
+    return get_session_props().get_property("token_count", 0)
 
 
 def _set_token_count(count: int) -> None:
-    """Set token count in CraftBot's global STATE."""
-    STATE.set_agent_property("token_count", count)
+    """Set token count on the active task's StateSession (per-task counter)."""
+    get_session_props().set_property("token_count", count)
 
 
 async def _report_usage(event: UsageEventData) -> None:
@@ -58,4 +58,36 @@ class LLMInterface(_LLMInterface):
             get_token_count=_get_token_count,
             set_token_count=_set_token_count,
             report_usage=_report_usage,  # Report usage to local SQLite storage
+        )
+
+    def _report_usage_async(
+        self,
+        service_type: str,
+        provider: str,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cached_tokens: int = 0,
+    ) -> None:
+        """Override: attribute to the active task SYNCHRONOUSLY at the call
+        site, then defer to the base for the async storage report.
+
+        The base implementation schedules the report hook as an asyncio task,
+        which means by the time the hook runs, STATE.current_task may have
+        already been swapped to a different task (or cleared) by a subsequent
+        trigger. Doing attribution synchronously here guarantees the counters
+        land on the task that actually made the LLM call.
+        """
+        from app.usage.task_attribution import attribute_usage_to_current_task
+        attribute_usage_to_current_task(UsageEventData(
+            service_type=service_type,
+            provider=provider,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cached_tokens=cached_tokens,
+        ))
+        super()._report_usage_async(
+            service_type, provider, model,
+            input_tokens, output_tokens, cached_tokens,
         )

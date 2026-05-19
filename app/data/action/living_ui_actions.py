@@ -543,6 +543,17 @@ def living_ui_http(input_data: dict) -> dict:
         }
         if parsed_json is not None:
             out["response_json"] = parsed_json
+
+        # If the agent just mutated the Living UI's data, tell the browser so the
+        # iframe reloads to show fresh state. The frontend debounces these so a
+        # burst of writes only triggers one reload.
+        if resp.ok and method in {"POST", "PUT", "PATCH", "DELETE"}:
+            try:
+                from app.living_ui import dispatch_living_ui_data_changed
+                dispatch_living_ui_data_changed(project_id)
+            except Exception:
+                pass
+
         return out
     except Exception as e:
         return {"status": "error", "status_code": 0, "response_headers": {}, "body": "", "final_url": url, "elapsed_ms": 0, "message": str(e)}

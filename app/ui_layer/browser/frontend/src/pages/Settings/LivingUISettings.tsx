@@ -169,11 +169,16 @@ export function LivingUISettings() {
   }, [isConnected, send, onMessage])
 
   useEffect(() => {
-    const cleanup = onMessage('living_ui_project_action', (data: any) => {
+    const handleActionComplete = (data: any) => {
       setActionInProgress(null)
       if (data.success) send('living_ui_settings_get')
-    })
-    return cleanup
+    }
+    const cleanups = [
+      onMessage('living_ui_launch', handleActionComplete),
+      onMessage('living_ui_stop', handleActionComplete),
+      onMessage('living_ui_delete', handleActionComplete),
+    ]
+    return () => cleanups.forEach(c => c())
   }, [send, onMessage])
 
   useEffect(() => {
@@ -228,12 +233,12 @@ export function LivingUISettings() {
 
   const handleLaunch = (projectId: string) => {
     setActionInProgress(projectId)
-    send('living_ui_project_action', { projectId, action: 'launch' })
+    send('living_ui_launch', { projectId })
   }
 
   const handleStop = (projectId: string) => {
     setActionInProgress(projectId)
-    send('living_ui_project_action', { projectId, action: 'stop' })
+    send('living_ui_stop', { projectId })
   }
 
   const toggleProject = (id: string) => {
@@ -253,7 +258,7 @@ export function LivingUISettings() {
       variant: 'danger',
     }, () => {
       setActionInProgress(project.id)
-      send('living_ui_project_action', { projectId: project.id, action: 'delete' })
+      send('living_ui_delete', { projectId: project.id })
     })
   }
 
