@@ -20,14 +20,10 @@ from craftos_integrations import list_connected
 # Keys are platform_ids (the same string handlers expose as ``handler.spec.platform_id``).
 PLATFORM_CONVERSATION_ACTIONS: Dict[str, List[str]] = {
     "discord":           ["send_discord_message", "send_discord_dm"],
-    "github":            ["add_github_comment", "create_github_issue"],
-    "jira":              ["add_jira_comment", "create_jira_issue"],
     "lark":              ["send_lark_message"],
-    "line":              ["send_line_message"],
     "slack":             ["send_slack_message"],
     "telegram_bot":      ["send_telegram_bot_message"],
     "telegram_user":     ["send_telegram_user_message"],
-    "twitter":           ["post_tweet", "reply_to_tweet"],
     "whatsapp_business": ["send_whatsapp_web_text_message"],
     "whatsapp_web":      ["send_whatsapp_web_text_message"],
 }

@@ -522,27 +522,34 @@ class MCPStep:
         try:
             from app.tui.mcp_settings import list_mcp_servers
             servers = list_mcp_servers()
-
-            # Create a lookup by name
-            server_lookup = {s["name"]: s for s in servers}
-
-            # Return only recommended servers that exist in config
-            options = []
-            for name, (icon, requires_setup) in self.RECOMMENDED_SERVERS.items():
-                if name in server_lookup:
-                    server = server_lookup[name]
-                    label = server["name"].replace("-", " ").replace(" mcp", "").title()
-                    options.append(StepOption(
-                        value=server["name"],
-                        label=label,
-                        description=server.get("description", f"MCP server: {server['name']}"),
-                        default=server.get("enabled", False),
-                        icon=icon,
-                        requires_setup=requires_setup
-                    ))
-            return options
-        except ImportError:
+        except Exception:
+            # If MCP config is completely broken, show nothing rather than
+            # crashing the wizard — the user can configure later in Settings.
             return []
+
+        # Create a lookup by name
+        server_lookup = {s["name"]: s for s in servers}
+
+        # Return only recommended servers that exist in config
+        options = []
+        for name, (icon, requires_setup) in self.RECOMMENDED_SERVERS.items():
+            if name in server_lookup:
+                server = server_lookup[name]
+                label = server["name"].replace("-", " ").replace(" mcp", "").title()
+                # Append platform warning to description when server paths
+                # are incompatible with the current OS
+                desc = server.get("description", f"MCP server: {server['name']}")
+                if server.get("platform_blocked"):
+                    label += " (⚠ Windows-only — requires setup on this OS)"
+                options.append(StepOption(
+                    value=server["name"],
+                    label=label,
+                    description=desc,
+                    default=server.get("enabled", False),
+                    icon=icon,
+                    requires_setup=requires_setup,
+                ))
+        return options
 
     def validate(self, value: Any) -> tuple[bool, Optional[str]]:
         # Value should be a list of server names

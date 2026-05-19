@@ -53,9 +53,7 @@ from agent_core import action
                 "simulated_mode": True
         }
 )
-def send_message_with_attachment(input_data: dict) -> dict:
-    import asyncio
-
+async def send_message_with_attachment(input_data: dict) -> dict:
     message = input_data['message']
     file_paths = input_data.get('file_paths', [])
     wait_for_user_reply = bool(input_data.get('wait_for_user_reply', False))
@@ -97,9 +95,9 @@ def send_message_with_attachment(input_data: dict) -> dict:
     import app.internal_action_interface as internal_action_interface
 
     # Use the do_chat_with_attachments method which handles browser/CLI fallback
-    result = asyncio.run(internal_action_interface.InternalActionInterface.do_chat_with_attachments(
+    result = await internal_action_interface.InternalActionInterface.do_chat_with_attachments(
         message, file_paths, session_id=session_id
-    ))
+    )
 
     fire_at_delay = 10800 if wait_for_user_reply else 0
     files_sent = result.get('files_sent', 0)

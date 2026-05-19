@@ -20,8 +20,8 @@ MODEL_REGISTRY = {
         InterfaceType.EMBEDDING: None,  # Anthropic does not provide native embedding models
     },
     "byteplus": {
-        InterfaceType.LLM: "seed-1-6-250915",
-        InterfaceType.VLM: "seed-1-6-250915",
+        InterfaceType.LLM: "seed-2-0-pro-260328",
+        InterfaceType.VLM: "seed-2-0-pro-260328",
         InterfaceType.EMBEDDING: "skylark-embedding-vision-250615",
     },
     "remote": {

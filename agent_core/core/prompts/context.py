@@ -114,6 +114,8 @@ IMPORTANT: Always inform the user when you install new capabilities. Ask for per
 </memory>
 
 <format_standards>
+- Delivery format: short content → inline via send_message; long/document content → PDF by default. docx/pptx/xlsx only on explicit user request or obvious fit.
+- NEVER deliver `.md` to the user as default, unless specified.
 - FORMAT.md contains your formatting and design standards for all file outputs.
 - BEFORE generating any file (PDF, PPTX, DOCX, XLSX, or other document types), read FORMAT.md:
   1. Use `grep_files` to search FORMAT.md for the target file type (e.g., "## pptx", "## docx")
