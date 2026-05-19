@@ -509,6 +509,21 @@ export function OnboardingPage() {
   }, [onboardingStep, selectedValue, textValue, orModel, proxiedVia, ollamaUrl, formValues, submitOnboardingStep])
 
   const handleSkip = useCallback(() => skipOnboardingStep(), [skipOnboardingStep])
+
+  // Ctrl+S to skip optional steps (matches TUI behavior)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        if (onboardingStep && !onboardingStep.required) {
+          e.preventDefault()
+          skipOnboardingStep()
+        }
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onboardingStep, skipOnboardingStep])
+
   const handleBack = useCallback(() => goBackOnboardingStep(), [goBackOnboardingStep])
 
   const isMultiSelect = onboardingStep?.name === 'mcp' || onboardingStep?.name === 'skills'
